@@ -1,0 +1,1 @@
+# scraping_gundam_mobile
