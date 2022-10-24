@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"os"
 )
 
@@ -11,27 +11,45 @@ func main() {
 	dailylist, _ := datedScores.GetDateList("daily")
 	monthlylist, _ := datedScores.GetDateList("monthly")
 
-	fmt.Println("--------- 日別の平均 ---------")
+	log.Println("--------- 日別の平均 ---------")
 
 	for _, d := range dailylist {
-		fmt.Println(d.Format("--------- 2006年01月02日 ---------"))
-		fmt.Println("撃墜", datedScores.GetDailyScores(d).GetAverage().Ko)
-		fmt.Println("被撃墜", datedScores.GetDailyScores(d).GetAverage().Down)
-		fmt.Println("与ダメ", datedScores.GetDailyScores(d).GetAverage().Give_damage)
-		fmt.Println("被ダメ", datedScores.GetDailyScores(d).GetAverage().Receive_damage)
-		fmt.Println("EXダメ", datedScores.GetDailyScores(d).GetAverage().Ex_damage)
+		log.Println(d.Format("--------- 2006年01月02日 ---------"))
+		count := datedScores.GetDailyScores(d).GetAverage().Count
+		victories := datedScores.GetDailyScores(d).GetAverage().Victories
+
+		log.Printf("%d戦 ", count)
+		log.Printf("%d勝 ", victories)
+
+		log.Printf("%.1f%%\n", (float64(victories) / float64(count) * 100))
+		log.Println("対戦数", datedScores.GetDailyScores(d).GetAverage().Count)
+		log.Println("勝利数", datedScores.GetDailyScores(d).GetAverage().Victories)
+		log.Println("撃墜", datedScores.GetDailyScores(d).GetAverage().Score.Ko)
+		log.Println("被撃墜", datedScores.GetDailyScores(d).GetAverage().Score.Down)
+		log.Println("与ダメ", datedScores.GetDailyScores(d).GetAverage().Score.Give_damage)
+		log.Println("被ダメ", datedScores.GetDailyScores(d).GetAverage().Score.Receive_damage)
+		log.Println("EXダメ", datedScores.GetDailyScores(d).GetAverage().Score.Ex_damage)
 
 	}
 
-	fmt.Println("--------- 月別の平均 ---------")
+	log.Println("--------- 月別の平均 ---------")
 
 	for _, m := range monthlylist {
-		fmt.Println(m.Format("---------2006年01月 ---------"))
-		fmt.Println("撃墜", datedScores.GetDailyMonthly(m).GetAverage().Ko)
-		fmt.Println("被撃墜", datedScores.GetDailyMonthly(m).GetAverage().Down)
-		fmt.Println("与ダメ", datedScores.GetDailyMonthly(m).GetAverage().Give_damage)
-		fmt.Println("被ダメ", datedScores.GetDailyMonthly(m).GetAverage().Receive_damage)
-		fmt.Println("EXダメ", datedScores.GetDailyMonthly(m).GetAverage().Ex_damage)
+		log.Println(m.Format("---------2006年01月 ---------"))
+
+		count := datedScores.GetDailyMonthly(m).GetAverage().Count
+		victories := datedScores.GetDailyMonthly(m).GetAverage().Victories
+
+		log.Printf("%d戦 ", count)
+		log.Printf("%d勝 ", victories)
+
+		log.Printf("%.1f%%\n", (float64(victories) / float64(count) * 100))
+
+		log.Println("撃墜", datedScores.GetDailyMonthly(m).GetAverage().Score.Ko)
+		log.Println("被撃墜", datedScores.GetDailyMonthly(m).GetAverage().Score.Down)
+		log.Println("与ダメ", datedScores.GetDailyMonthly(m).GetAverage().Score.Give_damage)
+		log.Println("被ダメ", datedScores.GetDailyMonthly(m).GetAverage().Score.Receive_damage)
+		log.Println("EXダメ", datedScores.GetDailyMonthly(m).GetAverage().Score.Ex_damage)
 
 	}
 }
