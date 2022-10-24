@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"log"
 	"math"
 	"regexp"
 	"strconv"
@@ -14,6 +13,7 @@ import (
 const vsmobile = "web.vsmobile.jp"
 
 type Score struct {
+	Win            bool
 	Ko             int
 	Down           int
 	Give_damage    int
@@ -25,6 +25,13 @@ type DatedScore struct {
 	Datatime time.Time
 	Score    Score
 }
+
+type AverageScore struct {
+	Count     int
+	Victories int
+	Score     Score
+}
+
 type Scores []Score
 type DatedScores []DatedScore
 
@@ -51,12 +58,15 @@ func dateFormatMonthly(t time.Time) time.Time {
 }
 
 func Scraiping(username, password string) DatedScores {
-	var scores DatedScores
-	var date, hour string
+
+	var (
+		scores     DatedScores
+		date, hour string
+		win        bool
+	)
 
 	m := newClient(username, password)
 	m.login()
-	log.Println("[INFO] Success login.")
 
 	// Instantiate default collector
 	rankpage := colly.NewCollector(
@@ -75,7 +85,7 @@ func Scraiping(username, password string) DatedScores {
 		date = r.ReplaceAllString(e.ChildText("p.datetime.fz-ss"), "") // 2022/10/15(土) -> 2022/10/15
 
 		link := e.ChildAttr("a", "href")
-		log.Println("[INFO] Found:", link)
+		//log.Println("[INFO] Found:", link)
 
 		dailypage.Visit(link)
 	})
@@ -89,10 +99,28 @@ func Scraiping(username, password string) DatedScores {
 		myscore_flag = 0
 		hour = e.ChildText("p.datetime.fz-ss")
 
+		if e.ChildAttr("a", "class") == "right-arrow vs-detail win" {
+			win = true
+		} else {
+			win = false
+		}
+
 		link := e.ChildAttr("a", "href")
-		log.Println("[INFO] Found:", link)
+		//log.Println("[INFO] Found:", link)
 
 		detailpage.Visit(link)
+	})
+
+	dailypage.OnHTML("div.block.control", func(e *colly.HTMLElement) {
+
+		// 2ページ目以降の処理
+		links := e.ChildAttrs("ul.clearfix > li > a", "href")
+		link := links[len(links)-1]
+
+		//log.Println("[INFO] Found:", link)
+
+		dailypage.Visit(link)
+
 	})
 
 	// スコア取得
@@ -119,6 +147,7 @@ func Scraiping(username, password string) DatedScores {
 			result := DatedScore{
 				datatime,
 				Score{
+					win,
 					ko,
 					down,
 					give_damage,
@@ -147,6 +176,7 @@ func (ds DatedScores) getscores(t time.Time, format func(time.Time) time.Time) S
 
 		if vd.Equal(date) {
 			score := Score{
+				v.Score.Win,
 				v.Score.Ko,
 				v.Score.Down,
 				v.Score.Give_damage,
@@ -171,9 +201,11 @@ func (ds DatedScores) GetDailyMonthly(t time.Time) Scores {
 	return ds.getscores(t, dateFormatMonthly)
 }
 
-func (s Scores) GetAverage() Score {
+func (s Scores) GetAverage() AverageScore {
 
 	var (
+		cnt                = 0
+		sum_Victories      = 0
 		sum_Ko             = 0
 		sum_Down           = 0
 		sum_Give_damage    = 0
@@ -187,6 +219,13 @@ func (s Scores) GetAverage() Score {
 		sum_Give_damage += v.Give_damage
 		sum_Receive_damage += v.Receive_damage
 		sum_Ex_damage += v.Ex_damage
+
+		cnt += 1
+
+		if v.Win {
+			sum_Victories += 1
+		}
+
 	}
 
 	average_Ko := float64(sum_Ko) / float64(len(s))
@@ -195,12 +234,16 @@ func (s Scores) GetAverage() Score {
 	average_Receive_damage := float64(sum_Receive_damage) / float64(len(s))
 	average_Ex_damage := float64(sum_Ex_damage) / float64(len(s))
 
-	return Score{
-		Ko:             int(math.Round(average_Ko)),
-		Down:           int(math.Round(average_Down)),
-		Give_damage:    int(math.Round(average_Give_damage)),
-		Receive_damage: int(math.Round(average_Receive_damage)),
-		Ex_damage:      int(math.Round(average_Ex_damage)),
+	return AverageScore{
+		cnt,
+		sum_Victories,
+		Score{
+			Ko:             int(math.Round(average_Ko)),
+			Down:           int(math.Round(average_Down)),
+			Give_damage:    int(math.Round(average_Give_damage)),
+			Receive_damage: int(math.Round(average_Receive_damage)),
+			Ex_damage:      int(math.Round(average_Ex_damage)),
+		},
 	}
 }
 
@@ -216,7 +259,8 @@ func (ds DatedScores) GetDateList(frequency string) ([]time.Time, error) {
 		if frequency == "daily" {
 			day = v.Datatime.Day()
 		} else if frequency == "monthly" {
-			day = 1
+			rounding_down := 1
+			day = rounding_down
 		} else {
 			return nil, errors.New(`ERROR: "daily" or "monthly" is required for the argument`)
 		}
