@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"time"
+	"log"
 
 	"github.com/gocolly/colly/v2"
 )
@@ -85,7 +86,7 @@ func Scraiping(username, password string) DatedScores {
 		date = r.ReplaceAllString(e.ChildText("p.datetime.fz-ss"), "") // 2022/10/15(土) -> 2022/10/15
 
 		link := e.ChildAttr("a", "href")
-		//log.Println("[INFO] Found:", link)
+		log.Println("[INFO] Found:", link)
 
 		dailypage.Visit(link)
 	})
@@ -106,7 +107,7 @@ func Scraiping(username, password string) DatedScores {
 		}
 
 		link := e.ChildAttr("a", "href")
-		//log.Println("[INFO] Found:", link)
+		log.Println("[INFO] Found:", link)
 
 		detailpage.Visit(link)
 	})
@@ -117,7 +118,7 @@ func Scraiping(username, password string) DatedScores {
 		links := e.ChildAttrs("ul.clearfix > li > a", "href")
 		link := links[len(links)-1]
 
-		//log.Println("[INFO] Found:", link)
+		log.Println("[INFO] Found:", link)
 
 		dailypage.Visit(link)
 
