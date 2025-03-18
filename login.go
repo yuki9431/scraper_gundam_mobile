@@ -10,8 +10,8 @@ import (
 
 const (
 	login_url       = "https://account-api.bandainamcoid.com/v3/login/idpw"
-	redirect_uri    = "https://www.bandainamcoid.com/v2/oauth2/auth?back=v3&client_id=gundamexvs&scope=JpGroupAll&redirect_uri=https://web.vsmobile.jp/exvs2xb/regist&text="
-	mobile_rankpage = "https://web.vsmobile.jp/exvs2xb/results/fight/rank"
+	redirect_uri    = "https://www.bandainamcoid.com/v2/oauth2/auth?back=v3&client_id=gundamexvs&scope=JpGroupAll&redirect_uri=https://web.vsmobile.jp/exvs2ob/regist&text="
+	mobile_rankpage = "https://web.vsmobile.jp/exvs2ob/results/classmatch/fight"
 )
 
 type client struct {
