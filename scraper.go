@@ -2,11 +2,11 @@ package main
 
 import (
 	"errors"
+	"log"
 	"math"
 	"regexp"
 	"strconv"
 	"time"
-	"log"
 
 	"github.com/gocolly/colly/v2"
 )
@@ -248,7 +248,7 @@ func (s Scores) GetAverage() AverageScore {
 	}
 }
 
-// 対戦した日付をのリストを取得
+// 対戦した日付のリストを取得
 func (ds DatedScores) GetDateList(frequency string) ([]time.Time, error) {
 	var dates []time.Time
 	var jst = time.FixedZone("Asia/Tokyo", 9*60*60)
