@@ -8,10 +8,11 @@ import (
 	"net/url"
 )
 
+// Note:
+// redirect_uriはログインボタンを押下した際のPOSTの内容(Request Data)から確認できる
 const (
-	login_url       = "https://account-api.bandainamcoid.com/v3/login/idpw"
-	redirect_uri    = "https://www.bandainamcoid.com/v2/oauth2/auth?back=v3&client_id=gundamexvs&scope=JpGroupAll&redirect_uri=https://web.vsmobile.jp/exvs2ob/regist&text="
-	mobile_rankpage = "https://web.vsmobile.jp/exvs2ob/results/classmatch/fight"
+	login_url    = "https://account-api.bandainamcoid.com/v3/login/idpw"
+	redirect_uri = "https://www.bandainamcoid.com/v2/oauth2/auth?back=v3&client_id=gundamexvs&scope=JpGroupAll&redirect_uri=https%3A%2F%2Fweb.vsmobile.jp%2Fexvs2ib%2Fregist&text="
 )
 
 type client struct {

@@ -11,6 +11,7 @@ func main() {
 	dailylist, _ := datedScores.GetDateList("daily")
 	monthlylist, _ := datedScores.GetDateList("monthly")
 
+	fmt.Println("")
 	fmt.Println("--------- 日別の平均 ---------")
 
 	for _, d := range dailylist {

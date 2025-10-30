@@ -2,7 +2,7 @@ package main
 
 import (
 	"errors"
-	"log"
+	"fmt"
 	"math"
 	"regexp"
 	"strconv"
@@ -11,7 +11,10 @@ import (
 	"github.com/gocolly/colly/v2"
 )
 
-const vsmobile = "web.vsmobile.jp"
+const (
+	vsmobile        = "web.vsmobile.jp"
+	mobile_rankpage = "https://web.vsmobile.jp/exvs2ib/results/classmatch/fight"
+)
 
 // スコア
 type Score struct {
@@ -82,6 +85,9 @@ func Scraiping(username, password string) DatedScores {
 	m := newClient(username, password)
 	m.login()
 
+	fmt.Println("Login Success!")
+	fmt.Print("Now Loading")
+
 	// Instantiate default collector
 	rankpage := colly.NewCollector(
 		colly.AllowedDomains(vsmobile),
@@ -99,7 +105,7 @@ func Scraiping(username, password string) DatedScores {
 		date = r.ReplaceAllString(e.ChildText("p.datetime.fz-ss"), "") // 2022/10/15(土) -> 2022/10/15
 
 		link := e.ChildAttr("a", "href")
-		log.Println("[INFO] Found:", link)
+		//log.Println("[INFO] Found:", link)
 
 		dailypage.Visit(link)
 	})
@@ -120,7 +126,7 @@ func Scraiping(username, password string) DatedScores {
 		}
 
 		link := e.ChildAttr("a", "href")
-		log.Println("[INFO] Found:", link)
+		//log.Println("[INFO] Found:", link)
 
 		detailpage.Visit(link)
 	})
@@ -132,7 +138,7 @@ func Scraiping(username, password string) DatedScores {
 		links := e.ChildAttrs("ul.clearfix > li > a", "href")
 		link := links[len(links)-1]
 
-		log.Println("[INFO] Found:", link)
+		//log.Println("[INFO] Found:", link)
 
 		dailypage.Visit(link)
 
@@ -177,6 +183,8 @@ func Scraiping(username, password string) DatedScores {
 			scores = append(scores, result)
 			myscore_flag += 1
 		}
+
+		fmt.Print(".")
 	})
 
 	rankpage.Visit(mobile_rankpage)
