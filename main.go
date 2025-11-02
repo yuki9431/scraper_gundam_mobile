@@ -25,11 +25,12 @@ func main() {
 		fmt.Printf("%.1f%%\n", (float64(victories) / float64(count) * 100))
 		fmt.Println("対戦数", datedScores.GetDailyScores(d).GetAverage().Game_count)
 		fmt.Println("勝利数", datedScores.GetDailyScores(d).GetAverage().Victories)
-		fmt.Println("撃墜", datedScores.GetDailyScores(d).GetAverage().Score.Ko)
-		fmt.Println("被撃墜", datedScores.GetDailyScores(d).GetAverage().Score.Down)
-		fmt.Println("与ダメ", datedScores.GetDailyScores(d).GetAverage().Score.Give_damage)
-		fmt.Println("被ダメ", datedScores.GetDailyScores(d).GetAverage().Score.Receive_damage)
-		fmt.Println("EXダメ", datedScores.GetDailyScores(d).GetAverage().Score.Ex_damage)
+		fmt.Println("スコア", datedScores.GetMonthlyScores(d).GetAverage().PlayerScore.Point)
+		fmt.Println("撃墜", datedScores.GetDailyScores(d).GetAverage().PlayerScore.Ko)
+		fmt.Println("被撃墜", datedScores.GetDailyScores(d).GetAverage().PlayerScore.Down)
+		fmt.Println("与ダメ", datedScores.GetDailyScores(d).GetAverage().PlayerScore.Give_damage)
+		fmt.Println("被ダメ", datedScores.GetDailyScores(d).GetAverage().PlayerScore.Receive_damage)
+		fmt.Println("EXダメ", datedScores.GetDailyScores(d).GetAverage().PlayerScore.Ex_damage)
 
 	}
 
@@ -46,11 +47,12 @@ func main() {
 
 		fmt.Printf("%.1f%%\n", (float64(victories) / float64(count) * 100))
 
-		fmt.Println("撃墜", datedScores.GetMonthlyScores(m).GetAverage().Score.Ko)
-		fmt.Println("被撃墜", datedScores.GetMonthlyScores(m).GetAverage().Score.Down)
-		fmt.Println("与ダメ", datedScores.GetMonthlyScores(m).GetAverage().Score.Give_damage)
-		fmt.Println("被ダメ", datedScores.GetMonthlyScores(m).GetAverage().Score.Receive_damage)
-		fmt.Println("EXダメ", datedScores.GetMonthlyScores(m).GetAverage().Score.Ex_damage)
+		fmt.Println("スコア", datedScores.GetMonthlyScores(m).GetAverage().PlayerScore.Point)
+		fmt.Println("撃墜", datedScores.GetMonthlyScores(m).GetAverage().PlayerScore.Ko)
+		fmt.Println("被撃墜", datedScores.GetMonthlyScores(m).GetAverage().PlayerScore.Down)
+		fmt.Println("与ダメ", datedScores.GetMonthlyScores(m).GetAverage().PlayerScore.Give_damage)
+		fmt.Println("被ダメ", datedScores.GetMonthlyScores(m).GetAverage().PlayerScore.Receive_damage)
+		fmt.Println("EXダメ", datedScores.GetMonthlyScores(m).GetAverage().PlayerScore.Ex_damage)
 
 	}
 }
