@@ -6,6 +6,7 @@ import (
 	"math"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gocolly/colly/v2"
@@ -17,8 +18,11 @@ const (
 )
 
 // スコア
-type Score struct {
+type PlayerScore struct {
+	City           string
+	Name           string
 	Win            bool
+	Point          int
 	Ko             int
 	Down           int
 	Give_damage    int
@@ -28,35 +32,34 @@ type Score struct {
 
 // 日付付きスコア
 type DatedScore struct {
-	Datatime time.Time
-	Score    Score
+	PlayerNo    int
+	Datatime    time.Time
+	PlayerScore PlayerScore
 }
 
 // スコア平均
 type AverageScore struct {
-	Game_count int
-	Victories  int
-	Score      Score
+	Game_count  int
+	Victories   int
+	PlayerScore PlayerScore
 }
 
 // スコアのリスト
-type Scores []Score
+type PlayerScores []PlayerScore
 
 // 日付付きスコアのリスト
 type DatedScores []DatedScore
 
-// Note:
-// 画面上から自分のスコアを判別するために使用する。
-// 自分のスコアはかならず画面の一番上にあるため、繰り返しカウントが0の時に自分のスコアを取得できる
-func isMyscore(count int) bool {
-
-	myscore := false
-
-	if count == 0 {
-		myscore = true
+// Note: "29,001pt" や "29001pt" などから数値部分を取り出して int を返す
+func parseNumber(s string) int {
+	re := regexp.MustCompile(`[\d,]+`)
+	m := re.FindString(s)
+	if m == "" {
+		return 0
 	}
-
-	return myscore
+	m = strings.ReplaceAll(m, ",", "")
+	v, _ := strconv.Atoi(m)
+	return v
 }
 
 // Note: 日別のスコアを集計する際に使用する
@@ -79,14 +82,11 @@ func Scraiping(username, password string) DatedScores {
 	var (
 		scores     DatedScores
 		date, hour string
-		win        bool
+		wins       []bool
 	)
 
 	m := newClient(username, password)
 	m.login()
-
-	fmt.Println("Login Success!")
-	fmt.Print("Now Loading")
 
 	// Instantiate default collector
 	rankpage := colly.NewCollector(
@@ -105,28 +105,23 @@ func Scraiping(username, password string) DatedScores {
 		date = r.ReplaceAllString(e.ChildText("p.datetime.fz-ss"), "") // 2022/10/15(土) -> 2022/10/15
 
 		link := e.ChildAttr("a", "href")
-		//log.Println("[INFO] Found:", link)
 
 		dailypage.Visit(link)
 	})
 
-	// Note: 相方と相手のスコアも一緒にスクレイピングするため、判別するためにmyscore_flagを使用する
-	myscore_flag := 0
-
 	// 日別の戦績ページにアクセス
 	dailypage.OnHTML("li.item", func(e *colly.HTMLElement) {
 
-		myscore_flag = 0
 		hour = e.ChildText("p.datetime.fz-ss")
 
+		// 判定: リンクの class に "win" が含まれるかで、1-2 人目が勝ち / 3-4 人目が負けとする
 		if e.ChildAttr("a", "class") == "right-arrow vs-detail win" {
-			win = true
+			wins = []bool{true, true, false, false}
 		} else {
-			win = false
+			wins = []bool{false, false, true, true}
 		}
 
 		link := e.ChildAttr("a", "href")
-		//log.Println("[INFO] Found:", link)
 
 		detailpage.Visit(link)
 	})
@@ -138,40 +133,57 @@ func Scraiping(username, password string) DatedScores {
 		links := e.ChildAttrs("ul.clearfix > li > a", "href")
 		link := links[len(links)-1]
 
-		//log.Println("[INFO] Found:", link)
-
 		dailypage.Visit(link)
-
 	})
 
-	// スコア取得
-	detailpage.OnHTML("div.pa-m.ds-fx.fx-va-c > div.w80.ds-fx.mx-ss", func(e *colly.HTMLElement) {
+	// プレイヤー情報およびスコア情報を取得
+	detailpage.OnHTML("div.panel_area", func(e *colly.HTMLElement) {
+		//detailpage.OnHTML("div.pa-m.ds-fx.fx-va-c > div.w80.ds-fx.mx-ss", func(e *colly.HTMLElement) {
 
 		// 画面上の数値をまとめて取得するための変数
 		selector_left_value := "div.w45.pr-ss > dl > dd"
 		selector_right_value := "div.w55 > dl > dd"
+		selector_city := "div.w80.ta-r > p.col-stand"
+		selector_name := "p.mb-ss.fz-m > span.name"
 
+		cities := e.ChildTexts(selector_city)
+		names := e.ChildTexts(selector_name)
 		left_value := e.ChildTexts(selector_left_value)   //スコア・撃墜・被撃墜
 		right_value := e.ChildTexts(selector_right_value) //与ダメ・被ダメ・EXダメ
 
 		// Note:
-		// 画面からプレイヤー4人のスコアがまとめて取得されるが
-		// 自分のスコアが取得された時のみ値を取得する
-		if isMyscore(myscore_flag) {
-			var layout = "2006/01/02 15:04"
-			t := date + " " + hour
+		// 画面からプレイヤー4人のスコアがまとめて取得されるため、
+		// ループで回して1人ずつDatedScore構造体に格納する。
+		var layout = "2006/01/02 15:04"
+		t := date + " " + hour
+		datatime, _ := time.Parse(layout, t)
 
-			datatime, _ := time.Parse(layout, t)              // 日付
-			ko, _ := strconv.Atoi(left_value[1])              // 撃墜
-			down, _ := strconv.Atoi(left_value[2])            // 被撃墜
-			give_damage, _ := strconv.Atoi(right_value[0])    // 与ダメージ
-			receive_damage, _ := strconv.Atoi(right_value[1]) // 被ダメージ
-			ex_damage, _ := strconv.Atoi(right_value[2])      // EXダメージ
+		playerCount := 4 // プレイヤー数は4人
+
+		for i := 0; i < playerCount; i++ {
+			offL := i * 3
+			offR := i * 3
+
+			city := cities[i]                                  //地域
+			name := names[i]                                   //プレイヤー名
+			win := wins[i]                                     //勝ち負け
+			point := parseNumber(left_value[0+offL])           // スコアポイント
+			ko := parseNumber(left_value[1+offL])              // 撃墜
+			down := parseNumber(left_value[2+offL])            // 被撃墜
+			give_damage := parseNumber(right_value[0+offR])    // 与ダメージ
+			receive_damage := parseNumber(right_value[1+offR]) // 被ダメージ
+			ex_damage := parseNumber(right_value[2+offR])      // EXダメージ
+
+			fmt.Println("[INFO] ", "勝ち:", win, "地域:", city, "playerNo:", i+1, "プレイヤー名:", name, "スコア:", point, "撃墜数:", ko, "被撃墜数:", down, "与ダメ:", give_damage, "被ダメ:", receive_damage, "EXダメ:", ex_damage)
 
 			result := DatedScore{
+				i + 1, //playerNo
 				datatime,
-				Score{
+				PlayerScore{
+					city,
+					name,
 					win,
+					point,
 					ko,
 					down,
 					give_damage,
@@ -181,10 +193,7 @@ func Scraiping(username, password string) DatedScores {
 			}
 
 			scores = append(scores, result)
-			myscore_flag += 1
 		}
-
-		fmt.Print(".")
 	})
 
 	rankpage.Visit(mobile_rankpage)
@@ -192,9 +201,9 @@ func Scraiping(username, password string) DatedScores {
 }
 
 // Note: GetDailyScoresとGetMonthlyScoresで使用するためのprivateメソッド
-func (ds DatedScores) getscores(t time.Time, format func(time.Time) time.Time) Scores {
+func (ds DatedScores) getscores(t time.Time, format func(time.Time) time.Time) PlayerScores {
 
-	var scores Scores
+	var scores PlayerScores
 
 	// 指定した日付のスコアのみ取得する
 	date := format(t)
@@ -202,13 +211,16 @@ func (ds DatedScores) getscores(t time.Time, format func(time.Time) time.Time) S
 		vd := format(v.Datatime)
 
 		if vd.Equal(date) {
-			score := Score{
-				v.Score.Win,
-				v.Score.Ko,
-				v.Score.Down,
-				v.Score.Give_damage,
-				v.Score.Receive_damage,
-				v.Score.Ex_damage,
+			score := PlayerScore{
+				v.PlayerScore.City,
+				v.PlayerScore.Name,
+				v.PlayerScore.Win,
+				v.PlayerScore.Point,
+				v.PlayerScore.Ko,
+				v.PlayerScore.Down,
+				v.PlayerScore.Give_damage,
+				v.PlayerScore.Receive_damage,
+				v.PlayerScore.Ex_damage,
 			}
 
 			scores = append(scores, score)
@@ -220,22 +232,23 @@ func (ds DatedScores) getscores(t time.Time, format func(time.Time) time.Time) S
 
 // Note: main.goで各日のスコアを取得するために使用する
 // 指定した日のスコアを取得する
-func (ds DatedScores) GetDailyScores(t time.Time) Scores {
+func (ds DatedScores) GetDailyScores(t time.Time) PlayerScores {
 	return ds.getscores(t, dateFormatDaily)
 }
 
 // Note:main.goで各月のスコアを取得するために使用する
 // 指定した月のスコアを取得する
-func (ds DatedScores) GetMonthlyScores(t time.Time) Scores {
+func (ds DatedScores) GetMonthlyScores(t time.Time) PlayerScores {
 	return ds.getscores(t, dateFormatMonthly)
 }
 
 // スコアリストの値を合計しAverageScoreを取得する
-func (s Scores) GetAverage() AverageScore {
+func (s PlayerScores) GetAverage() AverageScore {
 
 	var (
 		game_count         = 0
 		sum_Victories      = 0
+		sum_Point          = 0
 		sum_Ko             = 0
 		sum_Down           = 0
 		sum_Give_damage    = 0
@@ -244,6 +257,7 @@ func (s Scores) GetAverage() AverageScore {
 	)
 
 	for _, v := range s {
+		sum_Point += v.Point
 		sum_Ko += v.Ko
 		sum_Down += v.Down
 		sum_Give_damage += v.Give_damage
@@ -258,6 +272,7 @@ func (s Scores) GetAverage() AverageScore {
 
 	}
 
+	average_Point := float64(sum_Point) / float64(len(s))
 	average_Ko := float64(sum_Ko) / float64(len(s))
 	average_Down := float64(sum_Down) / float64(len(s))
 	average_Give_damage := float64(sum_Give_damage) / float64(len(s))
@@ -267,7 +282,8 @@ func (s Scores) GetAverage() AverageScore {
 	return AverageScore{
 		game_count,
 		sum_Victories,
-		Score{
+		PlayerScore{
+			Point:          int(math.Round(average_Point)),
 			Ko:             int(math.Round(average_Ko)),
 			Down:           int(math.Round(average_Down)),
 			Give_damage:    int(math.Round(average_Give_damage)),
@@ -289,12 +305,13 @@ func (ds DatedScores) GetDateList(frequency string) ([]time.Time, error) {
 	for _, v := range ds {
 
 		var day int
-		if frequency == "daily" {
+		switch frequency {
+		case "daily":
 			day = v.Datatime.Day()
-		} else if frequency == "monthly" {
+		case "monthly":
 			rounding_down := 1
 			day = rounding_down
-		} else {
+		default:
 			return nil, errors.New(`ERROR: "daily" or "monthly" is required for the argument`)
 		}
 
