@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"regexp"
 	"strconv"
@@ -21,7 +20,7 @@ const (
 type PlayerScore struct {
 	City           string
 	Name           string
-	Win            bool
+	Win            string
 	Point          int
 	Ko             int
 	Down           int
@@ -82,7 +81,7 @@ func Scraiping(username, password string) DatedScores {
 	var (
 		scores     DatedScores
 		date, hour string
-		wins       []bool
+		wins       []string
 	)
 
 	m := newClient(username, password)
@@ -116,9 +115,9 @@ func Scraiping(username, password string) DatedScores {
 
 		// 判定: リンクの class に "win" が含まれるかで、1-2 人目が勝ち / 3-4 人目が負けとする
 		if e.ChildAttr("a", "class") == "right-arrow vs-detail win" {
-			wins = []bool{true, true, false, false}
+			wins = []string{"win", "win", "lose", "lose"}
 		} else {
-			wins = []bool{false, false, true, true}
+			wins = []string{"lose", "lose", "win", "win"}
 		}
 
 		link := e.ChildAttr("a", "href")
@@ -173,8 +172,6 @@ func Scraiping(username, password string) DatedScores {
 			give_damage := parseNumber(right_value[0+offR])    // 与ダメージ
 			receive_damage := parseNumber(right_value[1+offR]) // 被ダメージ
 			ex_damage := parseNumber(right_value[2+offR])      // EXダメージ
-
-			fmt.Println("[INFO] ", "勝ち:", win, "地域:", city, "playerNo:", i+1, "プレイヤー名:", name, "スコア:", point, "撃墜数:", ko, "被撃墜数:", down, "与ダメ:", give_damage, "被ダメ:", receive_damage, "EXダメ:", ex_damage)
 
 			result := DatedScore{
 				i + 1, //playerNo
@@ -266,7 +263,7 @@ func (s PlayerScores) GetAverage() AverageScore {
 
 		game_count += 1
 
-		if v.Win {
+		if v.Win == "win" {
 			sum_Victories += 1
 		}
 
