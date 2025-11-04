@@ -4,7 +4,7 @@
 
 ## Requirement
 
-- Go 1.19.0 or later
+- Go 1.24.5 or later
 
 ## How to Use
 
@@ -22,38 +22,13 @@ go build -o main
 ```sh
 ID=YOUR_EMAIL; PASS=YOUR_PASSWORD
 
-./main $ID $PASS
+./main $ID $PASS "./path.csv"
 ```
 
 ## Output sample
 
 ```
---------- 日別の平均 ---------
---------- 2022年10月19日 ---------
-33戦 19勝 57.6%
-対戦数 33
-勝利数 19
-撃墜 1
-被撃墜 1
-与ダメ 835
-被ダメ 807
-EXダメ 113
---------- 2022年10月18日 ---------
-4戦 3勝 75.0%
-対戦数 4
-勝利数 3
-撃墜 2
-被撃墜 1
-与ダメ 884
-被ダメ 910
-EXダメ 182
----------2022年10月 ---------
-504戦 267勝 53.0%
-撃墜 1
-被撃墜 1
-与ダメ 884
-被ダメ 859
-EXダメ 134
+2025/11/04 10:58:52 [INFO] Scores successfully saved to ./path.csv
 ```
 
 ## Author
