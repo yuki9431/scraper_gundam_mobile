@@ -22,8 +22,8 @@ type PlayerScore struct {
 	Name           string
 	Win            string
 	Point          int
-	Ko             int
-	Down           int
+	Kills          int
+	Deaths         int
 	Give_damage    int
 	Receive_damage int
 	Ex_damage      int
@@ -167,8 +167,8 @@ func Scraiping(username, password string) DatedScores {
 			name := names[i]                                   //プレイヤー名
 			win := wins[i]                                     //勝ち負け
 			point := parseNumber(left_value[0+offL])           // スコアポイント
-			ko := parseNumber(left_value[1+offL])              // 撃墜
-			down := parseNumber(left_value[2+offL])            // 被撃墜
+			kills := parseNumber(left_value[1+offL])              // 撃墜
+			deaths := parseNumber(left_value[2+offL])            // 被撃墜
 			give_damage := parseNumber(right_value[0+offR])    // 与ダメージ
 			receive_damage := parseNumber(right_value[1+offR]) // 被ダメージ
 			ex_damage := parseNumber(right_value[2+offR])      // EXダメージ
@@ -181,8 +181,8 @@ func Scraiping(username, password string) DatedScores {
 					name,
 					win,
 					point,
-					ko,
-					down,
+					kills,
+					deaths,
 					give_damage,
 					receive_damage,
 					ex_damage,
@@ -213,8 +213,8 @@ func (ds DatedScores) getscores(t time.Time, format func(time.Time) time.Time) P
 				v.PlayerScore.Name,
 				v.PlayerScore.Win,
 				v.PlayerScore.Point,
-				v.PlayerScore.Ko,
-				v.PlayerScore.Down,
+				v.PlayerScore.Kills,
+				v.PlayerScore.Deaths,
 				v.PlayerScore.Give_damage,
 				v.PlayerScore.Receive_damage,
 				v.PlayerScore.Ex_damage,
@@ -246,8 +246,8 @@ func (s PlayerScores) GetAverage() AverageScore {
 		game_count         = 0
 		sum_Victories      = 0
 		sum_Point          = 0
-		sum_Ko             = 0
-		sum_Down           = 0
+		sum_Kills          = 0
+		sum_Deaths         = 0
 		sum_Give_damage    = 0
 		sum_Receive_damage = 0
 		sum_Ex_damage      = 0
@@ -255,8 +255,8 @@ func (s PlayerScores) GetAverage() AverageScore {
 
 	for _, v := range s {
 		sum_Point += v.Point
-		sum_Ko += v.Ko
-		sum_Down += v.Down
+		sum_Kills += v.Kills
+		sum_Deaths += v.Deaths
 		sum_Give_damage += v.Give_damage
 		sum_Receive_damage += v.Receive_damage
 		sum_Ex_damage += v.Ex_damage
@@ -270,8 +270,8 @@ func (s PlayerScores) GetAverage() AverageScore {
 	}
 
 	average_Point := float64(sum_Point) / float64(len(s))
-	average_Ko := float64(sum_Ko) / float64(len(s))
-	average_Down := float64(sum_Down) / float64(len(s))
+	average_Kills := float64(sum_Kills) / float64(len(s))
+	average_Deaths := float64(sum_Deaths) / float64(len(s))
 	average_Give_damage := float64(sum_Give_damage) / float64(len(s))
 	average_Receive_damage := float64(sum_Receive_damage) / float64(len(s))
 	average_Ex_damage := float64(sum_Ex_damage) / float64(len(s))
@@ -281,8 +281,8 @@ func (s PlayerScores) GetAverage() AverageScore {
 		sum_Victories,
 		PlayerScore{
 			Point:          int(math.Round(average_Point)),
-			Ko:             int(math.Round(average_Ko)),
-			Down:           int(math.Round(average_Down)),
+			Kills:          int(math.Round(average_Kills)),
+			Deaths:         int(math.Round(average_Deaths)),
 			Give_damage:    int(math.Round(average_Give_damage)),
 			Receive_damage: int(math.Round(average_Receive_damage)),
 			Ex_damage:      int(math.Round(average_Ex_damage)),
