@@ -12,7 +12,7 @@ import {
   clampMetric,
 } from './analysis/stats.js';
 import {
-  loadMatchesFromDB, saveMatchesToDB, replaceMatchesForUser, schemaMismatch,
+  loadMatchesFromDB, saveMatchesToDB, replaceMatchesForUser, needsRebuild,
 } from './lib/db.js';
 import {
   esc, pct, num, colorPct, colorDE,
@@ -40,9 +40,15 @@ var STATUS_MESSAGES = {
   refreshing: '最新データを取得中...',
   scraping: '戦績を取得中...（数分かかります）',
   analyzing: '分析中...',
+  rebuilding: 'データを再取得中...',
   done: '完了',
   error: 'エラーが発生しました',
 };
+
+// 全件再構築に失敗したときの再試行抑止期間。サーバー異常や0件応答のたびに
+// 毎起動で/matches(=Firestore全件読み取り)を叩き続けるのを防ぐ。
+var REBUILD_BACKOFF_MS = 6 * 60 * 60 * 1000;
+var REBUILD_BACKOFF_KEY = 'catalyzer_rebuild_backoff_until';
 
 // 実行中の分析ジョブID。ログアウト時にこのジョブのスクレイピングを中断し、ポーリングを停止するために使う
 var activeJobId = null;
@@ -1332,26 +1338,74 @@ function renderReport(data, userKey) {
   } catch (e) {}
 }
 
+// 再構築のバックオフ期限を読み書きする。localStorageが使えない環境では
+// 抑止を諦めて通常どおり再構築を試みる（機能自体は動く方に倒す）。
+function rebuildBackoffActive() {
+  try {
+    var until = parseInt(localStorage.getItem(REBUILD_BACKOFF_KEY), 10);
+    return until > Date.now();
+  } catch (e) {
+    return false;
+  }
+}
+
+function setRebuildBackoff(active) {
+  try {
+    if (active) localStorage.setItem(REBUILD_BACKOFF_KEY, String(Date.now() + REBUILD_BACKOFF_MS));
+    else localStorage.removeItem(REBUILD_BACKOFF_KEY);
+  } catch (e) {}
+}
+
 // IndexedDBキャッシュをサーバー側の全件データで丸ごと置き換える（スクレイピング無し）。
 // スキーマバージョン不一致の自動検知、またはHamburgerMenuの「データを再取得」導線から呼ばれる。
+// 再構築できたらtrueを返す。失敗・0件応答時はバックオフを張って毎起動リトライを防ぐ。
 async function rebuildCacheFromServer(userKey) {
-  var res = await fetch('/matches?user_key=' + encodeURIComponent(userKey));
-  var data = await res.json();
-  // 空配列(0件)はサーバー側の異常応答の可能性があるため再構築せず既存キャッシュを温存する
-  if (!res.ok || !data.matches || !data.matches.length) return;
-  await replaceMatchesForUser(userKey, data.matches, data.schema_version);
-  renderReport({ matches: data.matches }, userKey);
+  var statusText = document.getElementById('statusText');
+  var status = document.getElementById('status');
+  // 分析ポーリング等が既にステータスを出している場合は横取りしない（終了時にも消さない）。
+  var ownsStatus = !!(status && statusText && status.style.display === 'none');
+  if (ownsStatus) {
+    status.style.display = 'block';
+    statusText.textContent = STATUS_MESSAGES.rebuilding;
+  }
+  try {
+    var res = await fetch('/matches?user_key=' + encodeURIComponent(userKey));
+    var data = await res.json();
+    // 空配列(0件)はサーバー側の異常応答の可能性があるため再構築せず既存キャッシュを温存する
+    if (!res.ok || !data.matches || !data.matches.length) {
+      setRebuildBackoff(true);
+      return false;
+    }
+    await replaceMatchesForUser(userKey, data.matches, data.schema_version);
+    setRebuildBackoff(false);
+    renderReport({ matches: data.matches }, userKey);
+    return true;
+  } catch (e) {
+    setRebuildBackoff(true);
+    throw e;
+  } finally {
+    if (ownsStatus) status.style.display = 'none';
+  }
 }
 
 // HamburgerMenuの「データを再取得」ボタンから呼ばれる明示操作版。確認ダイアログを挟む。
+// 明示操作なのでバックオフ中でも実行し、失敗はエラー表示でユーザーに伝える。
 async function rebuildCache() {
   var userKey = null;
   try { userKey = localStorage.getItem('catalyzer_user_key'); } catch (e) {}
   if (!userKey) return;
   if (!window.confirm('試合データをサーバーから全件取得し直します。よろしいですか?')) return;
+
+  var error = document.getElementById('error');
+  if (error) error.style.display = 'none';
+  var rebuilt = false;
   try {
-    await rebuildCacheFromServer(userKey);
+    rebuilt = await rebuildCacheFromServer(userKey);
   } catch (e) {}
+  if (!rebuilt && error) {
+    error.textContent = '試合データの再取得に失敗しました。時間をおいて再度お試しください。';
+    error.style.display = 'block';
+  }
 }
 
 async function analyze() {
@@ -1578,13 +1632,17 @@ if (rememberInfoBtn && rememberModal) {
   // キャッシュのスキーマバージョンをサーバーの現行版と非ブロッキングで照合し、
   // 不一致なら（Firestore再構築のみの）全件再取得でキャッシュを作り直す。
   // 一致時は/matchesを叩かない。取得不能(サーバー未応答等)なら判定不能として何もしない。
+  // 直近の再構築が失敗している間は/schema-version(Firestore非アクセス)の照合だけ行い、
+  // /matchesの再試行はバックオフ期限まで見送る。
   if (renderedFromCache) {
     fetch('/schema-version').then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (!d) return;
-        if (schemaMismatch(cachedMatches[0].schema_version, d.schema_version)) {
-          rebuildCacheFromServer(cachedUserKey).catch(function () {});
-        }
+        if (!needsRebuild(cachedMatches, d.schema_version)) return;
+        if (rebuildBackoffActive()) return;
+        // 自動実行なので失敗は黙って見送る（ユーザーは古いキャッシュで作業を継続できる。
+        // 明示的な再取得はハンバーガーメニューの導線から行える）。
+        rebuildCacheFromServer(cachedUserKey).catch(function () {});
       })
       .catch(function () {});
   }

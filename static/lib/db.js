@@ -82,11 +82,14 @@ export function replaceMatchesForUser(userKey, matches, schemaVersion) {
   });
 }
 
-// schemaMismatch はIndexedDBキャッシュ済みバージョンとサーバー側バージョンを比較する純粋関数。
+// needsRebuild はキャッシュ全件を見て、1件でもサーバー版と異なれば再構築が必要と判定する純粋関数。
+// 速報バッチ(初回5件・以降20件)の部分保存が中断すると新旧バージョンが混在し、かつ
+// loadMatchesFromDB の並びはid辞書順なので、先頭1件のサンプリングでは検知漏れする。
 // serverVersionが取得できない(null/undefined)場合は判定不能として再構築しない。
-export function schemaMismatch(cachedVersion, serverVersion) {
+export function needsRebuild(cachedMatches, serverVersion) {
   if (serverVersion == null) return false;
-  return cachedVersion !== serverVersion;
+  if (!cachedMatches || !cachedMatches.length) return false;
+  return cachedMatches.some(function (m) { return m.schema_version !== serverVersion; });
 }
 
 export function loadMatchesFromDB(userKey) {
