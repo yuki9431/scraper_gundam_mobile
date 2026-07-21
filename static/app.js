@@ -1403,6 +1403,10 @@ async function rebuildCache() {
     rebuilt = await rebuildCacheFromServer(userKey);
   } catch (e) {}
   if (!rebuilt && error) {
+    // #error は partial 警告(黄色)と共有のため、赤系エラー表示前にインラインスタイルを戻す。
+    error.style.backgroundColor = '';
+    error.style.borderColor = '';
+    error.style.color = '';
     error.textContent = '試合データの再取得に失敗しました。時間をおいて再度お試しください。';
     error.style.display = 'block';
   }
