@@ -31,7 +31,7 @@ export function matchRecordId(userKey, match) {
   return userKey + '_' + (match.match_id || match.date);
 }
 
-export function saveMatchesToDB(userKey, matches) {
+export function saveMatchesToDB(userKey, matches, schemaVersion) {
   return openMatchDB().then(function (db) {
     return new Promise(function (resolve, reject) {
       var tx = db.transaction(MATCH_STORE, 'readwrite');
@@ -39,7 +39,8 @@ export function saveMatchesToDB(userKey, matches) {
       for (var i = 0; i < matches.length; i++) {
         var m = Object.assign({}, matches[i], {
           id: matchRecordId(userKey, matches[i]),
-          user_key: userKey
+          user_key: userKey,
+          schema_version: schemaVersion
         });
         store.put(m);
       }
@@ -47,6 +48,45 @@ export function saveMatchesToDB(userKey, matches) {
       tx.onerror = function (e) { reject(e.target.error); };
     });
   });
+}
+
+// replaceMatchesForUser は指定ユーザーの既存レコードを1トランザクションで全削除してから
+// 新規matchesをputする（スキーマ不一致時の全件再構築で孤児レコードを残さないため）。
+export function replaceMatchesForUser(userKey, matches, schemaVersion) {
+  return openMatchDB().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(MATCH_STORE, 'readwrite');
+      var store = tx.objectStore(MATCH_STORE);
+      var index = store.index('userKey');
+      var cursorReq = index.openCursor(IDBKeyRange.only(userKey));
+      cursorReq.onsuccess = function (e) {
+        var cursor = e.target.result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+          return;
+        }
+        for (var i = 0; i < matches.length; i++) {
+          var m = Object.assign({}, matches[i], {
+            id: matchRecordId(userKey, matches[i]),
+            user_key: userKey,
+            schema_version: schemaVersion
+          });
+          store.put(m);
+        }
+      };
+      cursorReq.onerror = function (e) { reject(e.target.error); };
+      tx.oncomplete = function () { resolve(); };
+      tx.onerror = function (e) { reject(e.target.error); };
+    });
+  });
+}
+
+// schemaMismatch はIndexedDBキャッシュ済みバージョンとサーバー側バージョンを比較する純粋関数。
+// serverVersionが取得できない(null/undefined)場合は判定不能として再構築しない。
+export function schemaMismatch(cachedVersion, serverVersion) {
+  if (serverVersion == null) return false;
+  return cachedVersion !== serverVersion;
 }
 
 export function loadMatchesFromDB(userKey) {

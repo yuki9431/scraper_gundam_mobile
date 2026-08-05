@@ -224,6 +224,9 @@ func StartServer() {
 		handleMatches(w, r)
 	})
 
+	// GET /schema-version → 現行MatchDataスキーマバージョン（Firestore未アクセス）
+	http.HandleFunc("/schema-version", handleSchemaVersion)
+
 	// GET /ms-list → MSリスト（機体名→画像URL）を配信。
 	// フロントの試合検索一覧が機体名から公式CDNのサムネイル画像を解決するために使う。
 	// 起動時に一度だけ読み込む（静的データ。失敗時は空を返し、フロントは機体名テキストにフォールバック）。
@@ -313,10 +316,11 @@ func handleResult(w http.ResponseWriter, r *http.Request, id string) {
 	}
 
 	resp := matchesResponse{
-		Matches:      json.RawMessage(snap.Report),
-		UserKey:      snap.UserKey,
-		Partial:      snap.PartialData,
-		SessionSaved: sessionSaved,
+		Matches:       json.RawMessage(snap.Report),
+		UserKey:       snap.UserKey,
+		Partial:       snap.PartialData,
+		SessionSaved:  sessionSaved,
+		SchemaVersion: pipeline.MatchDataSchemaVersion,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -377,8 +381,17 @@ func handleMatches(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendJSON(w, http.StatusOK, map[string]interface{}{
-		"matches": matches,
-		"total":   len(matches),
+		"matches":        matches,
+		"total":          len(matches),
+		"schema_version": pipeline.MatchDataSchemaVersion,
+	})
+}
+
+// handleSchemaVersion はFirestoreにアクセスせず現行のMatchDataスキーマバージョンを返す。
+// フロントが起動時にIndexedDBキャッシュとの不一致を軽量に検知するために使う。
+func handleSchemaVersion(w http.ResponseWriter, r *http.Request) {
+	sendJSON(w, http.StatusOK, map[string]interface{}{
+		"schema_version": pipeline.MatchDataSchemaVersion,
 	})
 }
 
@@ -416,20 +429,22 @@ func sendJSON(w http.ResponseWriter, code int, data interface{}) {
 }
 
 type matchesResponse struct {
-	Matches      json.RawMessage `json:"matches"`
-	Status       string          `json:"status,omitempty"`
-	Preliminary  bool            `json:"preliminary,omitempty"`
-	Partial      bool            `json:"partial,omitempty"`
-	UserKey      string          `json:"user_key,omitempty"`
-	SessionSaved bool            `json:"session_saved,omitempty"`
+	Matches       json.RawMessage `json:"matches"`
+	Status        string          `json:"status,omitempty"`
+	Preliminary   bool            `json:"preliminary,omitempty"`
+	Partial       bool            `json:"partial,omitempty"`
+	UserKey       string          `json:"user_key,omitempty"`
+	SessionSaved  bool            `json:"session_saved,omitempty"`
+	SchemaVersion int             `json:"schema_version"`
 }
 
 func sendMatchesResponse(w http.ResponseWriter, code int, matchesJSON, status, userKey string, preliminary bool) {
 	resp := matchesResponse{
-		Matches:     json.RawMessage(matchesJSON),
-		Status:      status,
-		Preliminary: preliminary,
-		UserKey:     userKey,
+		Matches:       json.RawMessage(matchesJSON),
+		Status:        status,
+		Preliminary:   preliminary,
+		UserKey:       userKey,
+		SchemaVersion: pipeline.MatchDataSchemaVersion,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)

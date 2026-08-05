@@ -11,7 +11,7 @@ import {
   clampMetric,
 } from './analysis/stats.js';
 import {
-  loadMatchesFromDB, saveMatchesToDB,
+  loadMatchesFromDB, saveMatchesToDB, replaceMatchesForUser, schemaMismatch,
 } from './lib/db.js';
 import {
   esc, pct, num, colorPct, colorDE,
@@ -238,7 +238,7 @@ function ShareArea({ shareData }) {
 
 // --- Hamburger menu & topbar controls ---
 
-function HamburgerMenu({ isOpen, onClose, shareData, onLogout, currentView, onNavigate }) {
+function HamburgerMenu({ isOpen, onClose, shareData, onLogout, currentView, onNavigate, onRebuildCache }) {
   useEffect(function () {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -272,6 +272,7 @@ function HamburgerMenu({ isOpen, onClose, shareData, onLogout, currentView, onNa
           <${ShareArea} shareData=${shareData} />
         </div>
         <div class="menu-divider" />
+        ${onRebuildCache && html`<button class="menu-item" onClick=${function () { onClose(); onRebuildCache(); }}><span class="menu-icon">🔄</span>データを再取得</button>`}
         <button class="menu-item" style="color: var(--bad)" onClick=${function () { onClose(); onLogout(); }}>ログアウト</button>
       </div>
     </div>
@@ -906,7 +907,7 @@ async function reanalyzeWithSession() {
         if (activeJobId !== jobId) return;
         if (prelimData.matches && prelimData.preliminary) {
           if (prelimData.user_key) {
-            saveMatchesToDB(prelimData.user_key, prelimData.matches);
+            saveMatchesToDB(prelimData.user_key, prelimData.matches, prelimData.schema_version);
           }
           renderReport({ matches: prelimData.matches }, prelimData.user_key);
           statusText.textContent = STATUS_MESSAGES.refreshing;
@@ -933,7 +934,7 @@ async function reanalyzeWithSession() {
         if (activeJobId !== jobId) return;
         if (resultData.error) throw new Error(resultData.error);
         if (resultData.user_key && resultData.matches) {
-          await saveMatchesToDB(resultData.user_key, resultData.matches);
+          await saveMatchesToDB(resultData.user_key, resultData.matches, resultData.schema_version);
         }
         renderReport({ matches: resultData.matches }, resultData.user_key);
         break;
@@ -1145,7 +1146,7 @@ function Report({ data, userKey }) {
         <button class="topbar-refresh" onClick=${reAnalyze}>再分析</button>
       </div>
       <${HamburgerMenu} isOpen=${menuOpen} onClose=${function () { setMenuOpen(false); }}
-        shareData=${shareData} onLogout=${logout} currentView=${view} onNavigate=${navigate} />
+        shareData=${shareData} onLogout=${logout} currentView=${view} onNavigate=${navigate} onRebuildCache=${rebuildCache} />
       <${SearchView} matches=${allMatches || []} msImages=${msImages || {}} />
     </div>`;
   }
@@ -1187,7 +1188,7 @@ function Report({ data, userKey }) {
 
     <${HamburgerMenu} isOpen=${menuOpen} onClose=${function () { setMenuOpen(false); }}
       shareData=${shareData}
-      onLogout=${logout} currentView=${view} onNavigate=${navigate} />
+      onLogout=${logout} currentView=${view} onNavigate=${navigate} onRebuildCache=${rebuildCache} />
 
     <${KpiGrid} stats=${fePd.basic_stats} />
 
@@ -1220,7 +1221,7 @@ function Skeleton() {
       </div>
     </div>
     <${HamburgerMenu} isOpen=${menuOpen} onClose=${function () { setMenuOpen(false); }}
-      shareData=${null} onLogout=${logout} />
+      shareData=${null} onLogout=${logout} onRebuildCache=${rebuildCache} />
     <div class="kpi-grid">
       ${[0, 1, 2, 3, 4, 5].map(function () {
         return html`<div class="kpi">${bar('50%', 12, 12)}${bar('70%', 28)}</div>`;
@@ -1253,6 +1254,28 @@ function renderReport(data, userKey) {
 
   try {
     if (userKey) localStorage.setItem('catalyzer_user_key', userKey);
+  } catch (e) {}
+}
+
+// IndexedDBキャッシュをサーバー側の全件データで丸ごと置き換える（スクレイピング無し）。
+// スキーマバージョン不一致の自動検知、またはHamburgerMenuの「データを再取得」導線から呼ばれる。
+async function rebuildCacheFromServer(userKey) {
+  var res = await fetch('/matches?user_key=' + encodeURIComponent(userKey));
+  var data = await res.json();
+  // 空配列(0件)はサーバー側の異常応答の可能性があるため再構築せず既存キャッシュを温存する
+  if (!res.ok || !data.matches || !data.matches.length) return;
+  await replaceMatchesForUser(userKey, data.matches, data.schema_version);
+  renderReport({ matches: data.matches }, userKey);
+}
+
+// HamburgerMenuの「データを再取得」ボタンから呼ばれる明示操作版。確認ダイアログを挟む。
+async function rebuildCache() {
+  var userKey = null;
+  try { userKey = localStorage.getItem('catalyzer_user_key'); } catch (e) {}
+  if (!userKey) return;
+  if (!window.confirm('試合データをサーバーから全件取得し直します。よろしいですか?')) return;
+  try {
+    await rebuildCacheFromServer(userKey);
   } catch (e) {}
 }
 
@@ -1363,7 +1386,7 @@ async function analyze() {
         if (activeJobId !== jobId) return;
         if (prelimData.matches && prelimData.preliminary) {
           if (prelimData.user_key) {
-            saveMatchesToDB(prelimData.user_key, prelimData.matches);
+            saveMatchesToDB(prelimData.user_key, prelimData.matches, prelimData.schema_version);
           }
           renderReport({ matches: prelimData.matches }, prelimData.user_key);
           renderedReal = true;
@@ -1389,7 +1412,7 @@ async function analyze() {
         }
 
         if (resultData.user_key && resultData.matches) {
-          await saveMatchesToDB(resultData.user_key, resultData.matches);
+          await saveMatchesToDB(resultData.user_key, resultData.matches, resultData.schema_version);
         }
         renderReport({ matches: resultData.matches }, resultData.user_key);
         renderedReal = true;
@@ -1475,6 +1498,20 @@ if (rememberInfoBtn && rememberModal) {
         renderedFromCache = true;
       }
     } catch (e) {}
+  }
+
+  // キャッシュのスキーマバージョンをサーバーの現行版と非ブロッキングで照合し、
+  // 不一致なら（Firestore再構築のみの）全件再取得でキャッシュを作り直す。
+  // 一致時は/matchesを叩かない。取得不能(サーバー未応答等)なら判定不能として何もしない。
+  if (renderedFromCache) {
+    fetch('/schema-version').then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d) return;
+        if (schemaMismatch(cachedMatches[0].schema_version, d.schema_version)) {
+          rebuildCacheFromServer(cachedUserKey).catch(function () {});
+        }
+      })
+      .catch(function () {});
   }
 
   // キャッシュからレポートを表示したらログイン画面を隠す。

@@ -81,7 +81,7 @@ Go HTTPサーバーによる**非同期ジョブパイプライン**（最大同
 フロントエンドがIndexedDBにmatchesを保存し、JS分析関数で統計を計算・表示
 ```
 
-**主要エンドポイント:** `POST /analyze`, `GET /status/{id}`, `GET /result/{id}`, `POST /cancel/{id}`（実行中スクレイピングの中断。ログアウト時に使用）, `GET /matches`, `GET /tag-partners`, `GET /session`, `DELETE /session`, `POST /reanalyze`, `GET /health`, `GET /`（静的UI）
+**主要エンドポイント:** `POST /analyze`, `GET /status/{id}`, `GET /result/{id}`, `POST /cancel/{id}`（実行中スクレイピングの中断。ログアウト時に使用）, `GET /matches`, `GET /schema-version`（MatchDataの現行スキーマバージョン。Firestore未アクセス。フロントのIndexedDBキャッシュ再構築判定に使用）, `GET /tag-partners`, `GET /session`, `DELETE /session`, `POST /reanalyze`, `GET /health`, `GET /`（静的UI）
 
 ## コード構成
 
