@@ -9,6 +9,7 @@ import {
   computeFixedPartners,
   computeShareData, computeMsSummary,
   burstKpi, bestWorstHour, partnerKpi,
+  clampMetric,
 } from './analysis/stats.js';
 import {
   loadMatchesFromDB, saveMatchesToDB,
@@ -20,8 +21,9 @@ import {
   buildShareText, SVG_X, SVG_BSKY, SVG_LINE, SVG_COPY, SVG_CHECK,
 } from './lib/format.js';
 import {
-  Tips, SortableTable, Table, SubSection,
+  Tips, SortableTable, Table, SubSection, RangeCalendar,
 } from './components/ui.js';
+import { SearchView } from './components/search.js';
 import {
   useInView,
   EnemyMatchupSection, PartnerSection, MsPairSubSection, CostPairSubSection,
@@ -29,6 +31,7 @@ import {
   TimeOfDayChart, DayOfWeekChart, DailyTrendChart, SeasonChart,
   WinRateBarChart, DmgContributionChart,
   FallOrderContent, BurstTimingContent, BurstTypeContent, BurstCountContent,
+  CompareRadar,
 } from './components/charts.js';
 
 // --- Constants ---
@@ -45,89 +48,6 @@ var STATUS_MESSAGES = {
 var activeJobId = null;
 
 var PERIOD_KEYS = ['all', '90d', '60d', '30d', '14d', '7d', '3d', '1d'];
-
-// --- Calendar component ---
-
-var DOW_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
-
-function RangeCalendar({ startDate, endDate, onSelectStart, onSelectEnd }) {
-  var init = startDate ? new Date(startDate) : new Date();
-  var viewRef = useState({ year: init.getFullYear(), month: init.getMonth() });
-  var view = viewRef[0], setView = viewRef[1];
-  var phaseRef = useState(startDate ? (endDate ? 'done' : 'end') : 'start');
-  var phase = phaseRef[0], setPhase = phaseRef[1];
-
-  function prevMonth() {
-    setView(function (v) {
-      var m = v.month - 1;
-      return m < 0 ? { year: v.year - 1, month: 11 } : { year: v.year, month: m };
-    });
-  }
-  function nextMonth() {
-    setView(function (v) {
-      var m = v.month + 1;
-      return m > 11 ? { year: v.year + 1, month: 0 } : { year: v.year, month: m };
-    });
-  }
-
-  var firstDay = new Date(view.year, view.month, 1).getDay();
-  var daysInMonth = new Date(view.year, view.month + 1, 0).getDate();
-
-  var cells = [];
-  for (var i = 0; i < firstDay; i++) cells.push(null);
-  for (var d = 1; d <= daysInMonth; d++) cells.push(d);
-  while (cells.length < 42) cells.push(null);
-
-  function toStr(day) {
-    return view.year + '-' + String(view.month + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0');
-  }
-
-  function handleClick(day) {
-    if (!day) return;
-    var s = toStr(day);
-    if (phase === 'start' || phase === 'done') {
-      onSelectStart(s);
-      onSelectEnd('');
-      setPhase('end');
-    } else {
-      if (s < startDate) {
-        onSelectStart(s);
-        onSelectEnd('');
-      } else {
-        onSelectEnd(s);
-        setPhase('done');
-      }
-    }
-  }
-
-  function dayClass(day) {
-    if (!day) return '';
-    var s = toStr(day);
-    var cls = 'cal-day';
-    if (s === startDate || s === endDate) cls += ' selected';
-    else if (startDate && endDate && s > startDate && s < endDate) cls += ' in-range';
-    return cls;
-  }
-
-  var hint = phase === 'start' || phase === 'done' ? '▶ 開始日を選択' : '▶ 終了日を選択';
-
-  return html`<div class="cal">
-    <div class="cal-header">
-      <button class="cal-nav" onClick=${prevMonth}>◀</button>
-      <span class="cal-title">${view.year}年${view.month + 1}月</span>
-      <button class="cal-nav" onClick=${nextMonth}>▶</button>
-    </div>
-    <div style="text-align:center;font-size:0.8em;color:var(--accent);margin-bottom:4px">${hint}</div>
-    <div class="cal-grid">
-      ${DOW_LABELS.map(function (d) { return html`<span class="cal-dow">${d}</span>`; })}
-      ${cells.map(function (day) {
-        if (!day) return html`<span class="cal-empty" />`;
-        return html`<button class=${dayClass(day)}
-          onClick=${function () { handleClick(day); }}>${day}</button>`;
-      })}
-    </div>
-  </div>`;
-}
 
 // --- Time selector ---
 
@@ -319,7 +239,7 @@ function ShareArea({ shareData }) {
 
 // --- Hamburger menu & topbar controls ---
 
-function HamburgerMenu({ isOpen, onClose, shareData, onLogout }) {
+function HamburgerMenu({ isOpen, onClose, shareData, onLogout, currentView, onNavigate }) {
   useEffect(function () {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -330,14 +250,19 @@ function HamburgerMenu({ isOpen, onClose, shareData, onLogout }) {
   }, [isOpen]);
 
   if (!isOpen) return null;
+  var view = currentView || 'report';
+  function go(target) {
+    if (onNavigate) onNavigate(target);
+    onClose();
+  }
   return html`<div>
     <div class="menu-backdrop" onClick=${onClose} />
     <div class=${'menu-drawer' + (isOpen ? ' open' : '')}>
       <div class="menu-header"><img src="logo.svg" alt="catalyzer" style="height:24px;width:auto;" /></div>
       <div class="menu-body">
         <div class="menu-section">メニュー</div>
-        <button class="menu-item active" onClick=${onClose}><span class="menu-icon">📊</span>分析レポート</button>
-        <button class="menu-item disabled"><span class="menu-icon">🔍</span>試合検索<span class="coming-soon">coming soon</span></button>
+        <button class=${'menu-item' + (view === 'report' ? ' active' : '')} onClick=${function () { go('report'); }}><span class="menu-icon">📊</span>分析レポート</button>
+        <button class=${'menu-item' + (view === 'search' ? ' active' : '')} onClick=${function () { go('search'); }}><span class="menu-icon">🔍</span>試合検索</button>
         <button class="menu-item disabled"><span class="menu-icon">📈</span>モバイル総合戦歴<span class="coming-soon">coming soon</span></button>
         <button class="menu-item disabled"><span class="menu-icon">🏆</span>EXランキング<span class="coming-soon">coming soon</span></button>
         <button class="menu-item disabled"><span class="menu-icon">🤖</span>機体使用率ランキング<span class="coming-soon">coming soon</span></button>
@@ -398,12 +323,6 @@ function LensToggle({ lens, onSelect }) {
 }
 
 // --- Dashboard building blocks ---
-
-// 値を min..max の範囲で 0-100 に正規化（レーダー用）
-function clampN(v, min, max) {
-  if (v == null) return 0;
-  return Math.max(0, Math.min(100, (v - min) / (max - min) * 100));
-}
 
 // KPIカードの色クラス。higher=trueは大きいほど良い
 function kpiClass(n, great, good, terrible, higher) {
@@ -513,45 +432,6 @@ function KpiGrid({ activeTab, frontendData }) {
 }
 
 // 2系列を重ねたレーダー（series: [{label, color, bg, data[]}]）
-function CompareRadar({ labels, series, showLegend }) {
-  var containerRef = useRef(null);
-  var canvasRef = useRef(null);
-  var chartRef = useRef(null);
-  var inView = useInView(containerRef);
-
-  useEffect(function () {
-    if (!inView || !canvasRef.current) return;
-    if (chartRef.current) chartRef.current.destroy();
-    chartRef.current = new Chart(canvasRef.current, {
-      type: 'radar',
-      data: {
-        labels: labels,
-        datasets: series.map(function (s) {
-          return {
-            label: s.label, data: s.data, hidden: !!s.hidden,
-            backgroundColor: s.bg, borderColor: s.color,
-            pointBackgroundColor: s.color, borderWidth: 2,
-          };
-        }),
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: showLegend === false ? { display: false } : { labels: { color: '#8aa0b3' } } },
-        scales: {
-          r: {
-            min: 0, max: 100, ticks: { display: false, stepSize: 25 },
-            grid: { color: 'rgba(255,255,255,0.1)' }, angleLines: { color: 'rgba(255,255,255,0.1)' },
-            pointLabels: { color: '#aaa', font: { size: 12 } },
-          },
-        },
-      },
-    });
-    return function () { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
-  }, [labels, series, inView, showLegend]);
-
-  return html`<div class="chart-container chart-radar" ref=${containerRef}><canvas ref=${canvasRef} /></div>`;
-}
-
 // 全体・勝利時・敗北時を下のボタンで単一選択し、レーダーとテーブルを連動して切り替える
 // 軸はK/D比(頂点)→被ダメ(右)→EXダメ(下)→与ダメ(左)。勝率は分割で無意味なため含めない
 function BasicLensSection({ basic, pattern, lens }) {
@@ -566,7 +446,7 @@ function BasicLensSection({ basic, pattern, lens }) {
   // 攻めを上半分・守りを下半分に固めつつ3ペアを対極配置: 与ダメ↔被ダメ, 撃墜↔被撃墜, EXダメ↔覚醒回数
   // 軸順(idx): 0=与ダメ(上), 1=撃墜(右上), 2=覚醒回数(右下), 3=被ダメ(下), 4=被撃墜(左下), 5=EXダメ(左上)
   function vec(dgv, kv, bv, dtv, dthv, exv) {
-    return [clampN(dgv, 600, 1200), clampN(kv, 0.5, 2.5), clampN(bv, 0, 2.5), clampN(dtv, 1200, 600), clampN(dthv, 2.5, 0.5), clampN(exv, 80, 250)];
+    return [clampMetric(dgv, 'dmgGiven'), clampMetric(kv, 'kills'), clampMetric(bv, 'bursts'), clampMetric(dtv, 'dmgTaken'), clampMetric(dthv, 'deaths'), clampMetric(exv, 'exDmg')];
   }
   var seriesByLens = {
     all: { label: '全体', color: '#81d4fa', bg: 'rgba(129,212,250,.2)', data: vec(basic.avg_dmg_given, basic.avg_kills, basic.avg_bursts, basic.avg_dmg_taken, basic.avg_deaths, basic.avg_ex_dmg) },
@@ -750,12 +630,12 @@ function FixedPartnerPanel({ fp, fpItems, lens }) {
   function pVec(stats, wlMetrics) {
     function v(label, allVal) { return valFor(wlMetrics, label, allVal); }
     return [
-      clampN(v('平均与ダメージ', stats.avg_dmg_given), 600, 1200),
-      clampN(v('平均撃墜', stats.avg_kills), 0.5, 2.5),
-      clampN(v('平均覚醒回数', stats.avg_bursts), 0, 2.5),
-      clampN(v('平均被ダメージ', stats.avg_dmg_taken), 1200, 600),
-      clampN(v('平均被撃墜', stats.avg_deaths), 2.5, 0.5),
-      clampN(v('平均EXダメージ', stats.avg_ex_dmg), 80, 250),
+      clampMetric(v('平均与ダメージ', stats.avg_dmg_given), 'dmgGiven'),
+      clampMetric(v('平均撃墜', stats.avg_kills), 'kills'),
+      clampMetric(v('平均覚醒回数', stats.avg_bursts), 'bursts'),
+      clampMetric(v('平均被ダメージ', stats.avg_dmg_taken), 'dmgTaken'),
+      clampMetric(v('平均被撃墜', stats.avg_deaths), 'deaths'),
+      clampMetric(v('平均EXダメージ', stats.avg_ex_dmg), 'exDmg'),
     ];
   }
 
@@ -955,7 +835,7 @@ function MatchupPane({ frontendData }) {
   var costPairEntries = (costPairData || []).map(function (p) { return { name: p.pair, winRate: p.win_rate }; });
 
   return html`<div class="tabpane">
-    ${enemyMatchup && html`<${Panel} title="敵機体との相性">
+    ${enemyMatchup && html`<${Panel} title="敵機との相性">
       ${enemyStrong.length > 0 && html`<h3>得意な相手</h3><${MsCompareChart} entries=${enemyStrong} />`}
       ${enemyWeak.length > 0 && html`<h3>苦手な相手</h3><${MsCompareChart} entries=${enemyWeak} />`}
       <${EnemyMatchupSection} matchup=${enemyMatchup} />
@@ -1181,11 +1061,38 @@ function Report({ data, userKey }) {
   var lens = lensRef[0], setLens = lensRef[1];
   var menuRef = useState(false);
   var menuOpen = menuRef[0], setMenuOpen = menuRef[1];
+  // 再分析はReportを再マウントするため、view(report/search)をlocalStorageで永続化して復元する。
+  var viewRef = useState(function () { try { return localStorage.getItem('catalyzer_view') || 'report'; } catch (e) { return 'report'; } });
+  var view = viewRef[0], setView = viewRef[1];
+  function navigate(v) {
+    setView(v);
+    try { localStorage.setItem('catalyzer_view', v); } catch (e) {}
+    // 画面切替時に、メニューで残ったスクロールロックを確実に解除し先頭へ戻す
+    // （ヘッダーが下に固定されスクロール不能になる不具合の対処）。
+    document.body.style.overflow = '';
+    document.documentElement.style.overflow = '';
+    window.scrollTo(0, 0);
+  }
   var matchesRef = useState(data.matches || null);
   var allMatches = matchesRef[0], setAllMatches = matchesRef[1];
   var tagPartnersRef = useState(null);
   var tagPartners = tagPartnersRef[0], setTagPartners = tagPartnersRef[1];
+  var msImagesRef = useState(null);
+  var msImages = msImagesRef[0], setMsImages = msImagesRef[1];
   var topbarRef = useRef(null);
+
+  // 機体名→画像URLのマップを一度だけ取得（試合検索一覧のサムネイル表示用）。
+  useEffect(function () {
+    fetch('/ms-list')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (list) {
+        if (!list) return;
+        var map = {};
+        list.forEach(function (m) { if (m && m.Name) map[m.Name] = m.ImageURL; });
+        setMsImages(map);
+      })
+      .catch(function () {});
+  }, []);
 
   useEffect(function () {
     if (!userKey) return;
@@ -1222,6 +1129,15 @@ function Report({ data, userKey }) {
     return function () { window.removeEventListener('scroll', onScroll); };
   }, []);
 
+  // 画面(view)が変わるたびに、メニュー由来のスクロールロックを確実に解除し先頭へ戻す。
+  // 再分析中はReportが再描画(再マウント)されるため、navigate内だけでなくここでも保証する
+  // （切替時にヘッダーが下に固定されスクロール不能になる不具合の対処）。
+  useEffect(function () {
+    document.body.style.overflow = '';
+    document.documentElement.style.overflow = '';
+    window.scrollTo(0, 0);
+  }, [view]);
+
   var PERIOD_LABELS = { all: '全データ', '90d': '90日', '60d': '60日', '30d': '30日', '14d': '14日', '7d': '7日', '3d': '3日', '1d': '1日' };
   var periods = {};
   PERIOD_KEYS.forEach(function (k) { periods[k] = { label: PERIOD_LABELS[k] }; });
@@ -1242,6 +1158,9 @@ function Report({ data, userKey }) {
     var shareItems = computeShareData(periodFiltered);
     var filtered = periodFiltered;
     if (selectedMs) filtered = filtered.filter(function (m) { return m.ms === selectedMs; });
+    // 勝敗レンズ: 選択時はレポート全体を勝ち/負け試合のみに絞る（MS一覧・共有データは母集団のまま）
+    if (lens === 'win') filtered = filtered.filter(function (m) { return m.win; });
+    else if (lens === 'loss') filtered = filtered.filter(function (m) { return !m.win; });
     if (!filtered.length) return { ms_summary: msSummary, share_data: shareItems };
     return {
       ms_summary: msSummary,
@@ -1264,7 +1183,7 @@ function Report({ data, userKey }) {
       burst_type: computeBurstType(filtered),
       fixed_partners: computeFixedPartners(filtered, tagPartners),
     };
-  }, [allMatches, selectedPeriod, selectedMs, tagPartners, customRange]);
+  }, [allMatches, selectedPeriod, selectedMs, lens, tagPartners, customRange]);
 
   var msStats = (frontendData && frontendData.ms_summary) || {};
   var msEntries = useMemo(function () {
@@ -1291,6 +1210,21 @@ function Report({ data, userKey }) {
     return { basic_stats: null, win_loss_pattern: null };
   }, [frontendData]);
 
+  // 試合検索ビュー: ダッシュボードのフィルタ群とは独立した専用画面。
+  // allMatches（IndexedDBキャッシュ）を共有し、フロントエンドで絞り込む。
+  if (view === 'search') {
+    return html`<div class="view-root">
+      <div class="topbar">
+        <button class="hamburger" onClick=${function () { setMenuOpen(true); }}>☰</button>
+        <span class="brand"><img src="logo.svg" alt="catalyzer" /></span>
+        <button class="topbar-refresh" onClick=${reAnalyze}>再分析</button>
+      </div>
+      <${HamburgerMenu} isOpen=${menuOpen} onClose=${function () { setMenuOpen(false); }}
+        shareData=${shareData} onLogout=${logout} currentView=${view} onNavigate=${navigate} />
+      <${SearchView} matches=${allMatches || []} msImages=${msImages || {}} />
+    </div>`;
+  }
+
   if (!frontendData) {
     return html`<${Skeleton} />`;
   }
@@ -1309,7 +1243,7 @@ function Report({ data, userKey }) {
     pane = html`<${OverviewPane} pd=${fePd} selectedMs=${selectedMs} lens=${lens} frontendData=${frontendData} />`;
   }
 
-  return html`
+  return html`<div class="view-root">
     <div class="topbar" ref=${topbarRef}>
       <button class="hamburger" onClick=${function () { setMenuOpen(true); }}>☰</button>
       <span class="brand"><img src="logo.svg" alt="catalyzer" /></span>
@@ -1328,13 +1262,12 @@ function Report({ data, userKey }) {
 
     <${HamburgerMenu} isOpen=${menuOpen} onClose=${function () { setMenuOpen(false); }}
       shareData=${shareData}
-      onLogout=${logout} />
+      onLogout=${logout} currentView=${view} onNavigate=${navigate} />
 
     <${KpiGrid} activeTab=${activeTab} frontendData=${frontendData} />
 
     ${pane}
-
-  `;
+  </div>`;
 }
 
 // --- Main app logic ---
@@ -1346,7 +1279,7 @@ function Skeleton() {
   function bar(w, h, mb) {
     return html`<div class="skel" style=${{ width: w, height: h + 'px', marginBottom: (mb || 0) + 'px' }}></div>`;
   }
-  return html`
+  return html`<div class="view-root">
     <div class="topbar">
       <button class="hamburger" onClick=${function () { setMenuOpen(true); }}>☰</button>
       <span class="brand"><img src="logo.svg" alt="catalyzer" /></span>
@@ -1375,7 +1308,7 @@ function Skeleton() {
       ${bar('24%', 16, 14)}
       ${[0, 1, 2, 3].map(function () { return bar('100%', 14, 10); })}
     </div>
-  `;
+  </div>`;
 }
 
 function showSkeleton() {
@@ -1608,23 +1541,36 @@ if (rememberInfoBtn && rememberModal) {
     hasSession = !!localStorage.getItem('catalyzer_has_session');
   } catch (e) {}
 
+  var renderedFromCache = false;
   if (cachedUserKey) {
     try {
       var cachedMatches = await loadMatchesFromDB(cachedUserKey);
       if (cachedMatches && cachedMatches.length > 0) {
         renderReport({ matches: cachedMatches }, cachedUserKey);
+        renderedFromCache = true;
       }
     } catch (e) {}
   }
 
+  // キャッシュからレポートを表示したらログイン画面を隠す。
+  // セッション有無に関わらず、レポートの上にログイン画面が残るのを防ぐ
+  // （ログインが必要な場合は再分析ボタン経由で reAnalyze が再表示する）。
+  if (renderedFromCache && loginForm) loginForm.style.display = 'none';
+
   if (hasSession) {
     if (loginForm) loginForm.style.display = 'none';
-    var hasLocalData = cachedUserKey && document.getElementById('report').children.length > 0;
+    var hasLocalData = renderedFromCache;
 
     fetch('/session').then(function (r) { return r.json(); }).then(function (data) {
       if (!data.valid) {
+        // セッション失効時は、キャッシュから描画済みのレポートを隠さないと
+        // ログイン画面の下に古いレポートが残る（reanalyzeWithSession の401経路と同じ後始末）。
         localStorage.removeItem('catalyzer_has_session');
+        var rep = document.getElementById('report');
+        if (rep) { render(null, rep); rep.style.display = 'none'; }
         if (loginForm) loginForm.style.display = 'block';
+        var t = document.getElementById('pageTitle');
+        if (t) t.style.display = '';
       } else if (!hasLocalData) {
         reanalyzeWithSession();
       }

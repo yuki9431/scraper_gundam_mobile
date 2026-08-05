@@ -59,6 +59,13 @@ jobs:
       matrix:
         environment: ${{ fromJson(needs.detect-environment.outputs.environments) }}
       max-parallel: 1
+    env:
+      # 起動時のバージョン確認HTTPリクエストを省略（CIでは通知不要）
+      PULUMI_SKIP_UPDATE_CHECK: "true"
+      # 中間state checkpointの書き込みを省き最終stateのみ書く（v3.104.0以降は
+      # PULUMI_EXPERIMENTAL不要）。速度と引き換えに、up途中でプロセスが異常終了
+      # すると中間stateが未書き込みになる耐久性トレードオフあり
+      PULUMI_SKIP_CHECKPOINTS: "true"
 
     steps:
       - uses: actions/checkout@v6
@@ -80,7 +87,6 @@ jobs:
       - name: Deploy with Pulumi
         working-directory: infra/app
         run: |
-          npm install -g @pulumi/pulumi 2>/dev/null || true
           pulumi login gs://${{ secrets.PULUMI_STATE_BUCKET }}
           pulumi stack select "${{ matrix.environment }}"
-          pulumi up --yes
+          pulumi up --yes --skip-preview

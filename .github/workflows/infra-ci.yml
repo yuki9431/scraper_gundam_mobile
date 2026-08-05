@@ -13,6 +13,9 @@ jobs:
       contents: read
       id-token: write
       pull-requests: write
+    env:
+      # 起動時のバージョン確認HTTPリクエストを省略（CIでは通知不要）
+      PULUMI_SKIP_UPDATE_CHECK: "true"
 
     steps:
       - name: Check required secrets
@@ -54,7 +57,6 @@ jobs:
         if: steps.check-secrets.outputs.skip != 'true'
         working-directory: infra/shared
         run: |
-          npm install -g @pulumi/pulumi 2>/dev/null || true
           pulumi login gs://${{ secrets.PULUMI_STATE_BUCKET }}
           if ! pulumi stack select shared 2>/dev/null; then
             echo "### shared: stack not initialized, skipping" > /tmp/pulumi-preview.txt

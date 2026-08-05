@@ -605,12 +605,12 @@ export function FallOrderContent({ fallOrder }) {
   var s = fallOrder.second_fall;
   var st = fallOrder.same_time;
   var rows = [
-    ['0落ち', n.count + '戦 (' + n.rate + '%)', colorPct(n.win_rate), colorDmgGiven(n.avg_dmg_given), colorDmgTaken(n.avg_dmg_taken), colorDE(n.dmg_efficiency, 3)],
-    ['先落ち', f.count + '戦 (' + f.rate + '%)', colorPct(f.win_rate), colorDmgGiven(f.avg_dmg_given), colorDmgTaken(f.avg_dmg_taken), colorDE(f.dmg_efficiency, 3)],
-    ['後落ち', s.count + '戦 (' + s.rate + '%)', colorPct(s.win_rate), colorDmgGiven(s.avg_dmg_given), colorDmgTaken(s.avg_dmg_taken), colorDE(s.dmg_efficiency, 3)],
+    ['0落ち', n.count + '戦', colorPct(n.win_rate), colorDmgGiven(n.avg_dmg_given), colorDmgTaken(n.avg_dmg_taken), colorDE(n.dmg_efficiency, 3)],
+    ['先落ち', f.count + '戦', colorPct(f.win_rate), colorDmgGiven(f.avg_dmg_given), colorDmgTaken(f.avg_dmg_taken), colorDE(f.dmg_efficiency, 3)],
+    ['後落ち', s.count + '戦', colorPct(s.win_rate), colorDmgGiven(s.avg_dmg_given), colorDmgTaken(s.avg_dmg_taken), colorDE(s.dmg_efficiency, 3)],
   ];
   if (st.count > 0) {
-    rows.push(['同時落ち', st.count + '戦 (' + st.rate + '%)', colorPct(st.win_rate), colorDmgGiven(st.avg_dmg_given), colorDmgTaken(st.avg_dmg_taken), colorDE(st.dmg_efficiency, 3)]);
+    rows.push(['同時落ち', st.count + '戦', colorPct(st.win_rate), colorDmgGiven(st.avg_dmg_given), colorDmgTaken(st.avg_dmg_taken), colorDE(st.dmg_efficiency, 3)]);
   }
   return html`<div>
     <p>対象: ${fallOrder.total}戦</p>
@@ -622,10 +622,10 @@ export function FallOrderContent({ fallOrder }) {
 export function BurstTimingContent({ timingData }) {
   if (!timingData || !timingData.by_timing || !timingData.by_timing.length) return null;
   var rows = timingData.by_timing.map(function (t) {
-    return [t.label, t.count + '戦 (' + t.rate + '%)', colorPct(t.win_rate)];
+    return [t.label, t.count + '戦', colorPct(t.win_rate)];
   });
   return html`<div>
-    <p>覚醒発動時の被撃墜数で分類（対象: ${timingData.total}戦）<br />1試合で複数のタイミングに覚醒した場合は各タイミングに計上（割合の合計は100%を超えることがあります）</p>
+    <p>覚醒発動時の被撃墜数で分類（対象: ${timingData.total}戦）<br />1試合で複数のタイミングに覚醒した場合は各タイミングに計上</p>
     <${Table} headers=${['タイミング', '試合数', '勝率']} rows=${rows} />
     <${Tips} tips=${timingData.tips} />
   </div>`;
@@ -634,7 +634,7 @@ export function BurstTimingContent({ timingData }) {
 export function BurstTypeContent({ typeData }) {
   if (!typeData || !typeData.by_type || !typeData.by_type.length) return null;
   var rows = typeData.by_type.map(function (t) {
-    return [t.label, t.count + '回 (' + t.rate + '%)', t.matches + '戦', colorPct(t.win_rate)];
+    return [t.label, t.count + '回', t.matches + '戦', colorPct(t.win_rate)];
   });
   return html`<div>
     <p>F/S/E覚醒の使用傾向（対象: ${typeData.total_bursts}回発動）</p>
@@ -652,4 +652,53 @@ export function BurstCountContent({ countData }) {
     <${Table} headers=${['覚醒回数', '試合数', '勝率']} rows=${rows} />
     <${Tips} tips=${countData.tips} />
   </div>`;
+}
+
+// レーダーの最低描画半径(%)。全軸が最低評価(0)でも中心の点に潰れず六角形の厚みを残すための底上げ。
+var RADAR_FLOOR_PCT = 15;
+// 0-100の正規化値を [RADAR_FLOOR_PCT, 100] に写像する（順序は保つ）。
+function radarFloor(v) {
+  var n = Math.max(0, Math.min(100, Number(v) || 0));
+  return RADAR_FLOOR_PCT + n / 100 * (100 - RADAR_FLOOR_PCT);
+}
+
+// 基本データ比較レーダー（複数系列を重ねて表示）。series は {label,data,color,bg,hidden} の配列。
+// 軸は0-100正規化済みの値を渡す前提。最低評価でも六角形を保つため内部で底上げする。
+export function CompareRadar({ labels, series, showLegend }) {
+  var containerRef = useRef(null);
+  var canvasRef = useRef(null);
+  var chartRef = useRef(null);
+  var inView = useInView(containerRef);
+
+  useEffect(function () {
+    if (!inView || !canvasRef.current) return;
+    if (chartRef.current) chartRef.current.destroy();
+    chartRef.current = new Chart(canvasRef.current, {
+      type: 'radar',
+      data: {
+        labels: labels,
+        datasets: series.map(function (s) {
+          return {
+            label: s.label, data: s.data.map(radarFloor), hidden: !!s.hidden,
+            backgroundColor: s.bg, borderColor: s.color,
+            pointBackgroundColor: s.color, borderWidth: 2,
+          };
+        }),
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: showLegend === false ? { display: false } : { labels: { color: '#8aa0b3' } } },
+        scales: {
+          r: {
+            min: 0, max: 100, ticks: { display: false, stepSize: 25 },
+            grid: { color: 'rgba(255,255,255,0.1)' }, angleLines: { color: 'rgba(255,255,255,0.1)' },
+            pointLabels: { color: '#aaa', font: { size: 12 } },
+          },
+        },
+      },
+    });
+    return function () { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
+  }, [labels, series, inView, showLegend]);
+
+  return html`<div class="chart-container chart-radar" ref=${containerRef}><canvas ref=${canvasRef} /></div>`;
 }

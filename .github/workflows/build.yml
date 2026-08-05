@@ -3,6 +3,9 @@ name: Build
 on:
   push:
     branches: [main]
+    # イメージ内容の同一性は下流の content key（後述）で判定し、内容が変わらない
+    # 変更は再ビルド・デプロイともに自動で no-op になる。ここでは bot による
+    # Pulumi.stg.yaml コミットでの再発火（ループ）を防ぐ最小限の除外のみ行う。
     paths-ignore:
       - "infra/app/Pulumi.*.yaml"
       - ".github/workflows/deploy.yml"
@@ -62,6 +65,9 @@ jobs:
       contents: write
       id-token: write
       actions: write
+    env:
+      # 起動時のバージョン確認HTTPリクエストを省略（CIでは通知不要）
+      PULUMI_SKIP_UPDATE_CHECK: "true"
 
     steps:
       - uses: actions/checkout@v6
@@ -82,19 +88,53 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v3
 
-      - name: Build and push image
+      - name: Compute image content key
+        id: key
         run: |
-          IMAGE="${{ secrets.IMAGE_URI }}:${{ github.sha }}"
-          gcloud builds submit --tag "$IMAGE"
-          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          # Dockerfile が COPY するソース + Dockerfile / .dockerignore の git object hash
+          # からイメージ内容を一意に表すキーを算出する。Dockerfile が唯一の真実源。
+          srcs=$(grep -E '^COPY ' Dockerfile | grep -v -- '--from=' \
+                 | sed -E 's/^COPY +//; s/[[:space:]]+[^[:space:]]+$//')
+          inputs=""
+          for s in $srcs; do
+            h=$(git rev-parse --verify --quiet "HEAD:${s%/}") \
+              || { echo "::error::content key: '$s' が git に存在しない（Dockerfile と不整合）"; exit 1; }
+            inputs="${inputs}${h}"$'\n'
+          done
+          inputs="${inputs}$(git rev-parse HEAD:Dockerfile)"$'\n'
+          inputs="${inputs}$(git rev-parse --verify --quiet HEAD:.dockerignore || echo '-')"$'\n'
+          KEY=$(printf '%s' "$inputs" | sha256sum | cut -c1-16)
+          test -n "$KEY"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "image=${{ secrets.IMAGE_URI }}:$KEY" >> "$GITHUB_OUTPUT"
+          echo "Content key: $KEY"
+
+      - name: Build and push image (skip if content unchanged)
+        run: |
+          IMAGE_KEY="${{ steps.key.outputs.image }}"
+          IMAGE_SHA="${{ secrets.IMAGE_URI }}:${{ github.sha }}"
+          if gcloud artifacts docker images describe "$IMAGE_KEY" >/dev/null 2>&1; then
+            echo "同一内容のイメージが既存: $IMAGE_KEY — ビルドをスキップ"
+          else
+            gcloud builds submit --tag "$IMAGE_KEY"
+            # コミットSHAからも辿れるよう、同一イメージに追跡用タグを付与（失敗しても致命的でない）
+            gcloud artifacts docker tags add "$IMAGE_KEY" "$IMAGE_SHA" || true
+          fi
 
       - name: Update Pulumi config with new image
         working-directory: infra/app
         run: |
-          npm install -g @pulumi/pulumi 2>/dev/null || true
           pulumi login gs://${{ secrets.PULUMI_STATE_BUCKET }}
           pulumi stack select stg
-          pulumi config set exvs-app:image "$IMAGE" --secret
+          # --secret は毎回ランダムnonceで再暗号化し、同値でも state に差分を生む。
+          # 復号済みの現在値と一致するなら config set 自体を打たず、無駄な差分＝
+          # 無駄なデプロイを防ぐ。
+          current=$(pulumi config get exvs-app:image 2>/dev/null || echo "")
+          if [ "$current" = "${{ steps.key.outputs.image }}" ]; then
+            echo "image 変更なし（$current）— config set をスキップ"
+          else
+            pulumi config set exvs-app:image "${{ steps.key.outputs.image }}" --secret
+          fi
 
       - name: Commit updated Pulumi config
         run: |
@@ -102,10 +142,10 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add infra/app/Pulumi.stg.yaml
           if git diff --cached --quiet; then
-            echo "No changes to commit"
+            echo "イメージ内容に変更なし — commit せず、デプロイはスキップされる"
             echo "CHANGED=false" >> "$GITHUB_ENV"
           else
-            git commit -m "ci: update stg image to ${{ github.sha }}"
+            git commit -m "ci: update stg image to ${{ steps.key.outputs.key }}"
             git push
             echo "CHANGED=true" >> "$GITHUB_ENV"
           fi

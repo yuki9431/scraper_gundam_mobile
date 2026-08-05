@@ -160,6 +160,8 @@
     .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: .72em; font-weight: 700; }
     .badge.win { background: rgba(105,240,174,.15); color: var(--great); }
     .badge.lose { background: rgba(239,83,80,.15); color: var(--terrible); }
+    /* タイムアップ（制限時間切れ）試合を示す補助バッジ。勝敗バッジの隣に添える。 */
+    .badge-timeup { display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 999px; font-size: .68em; font-weight: 700; background: rgba(255,193,7,.15); color: #ffc107; }
 
     /* ===== Report tables / sections (reused leaf components) ===== */
     .report h1 { font-size: 1.5em; margin: 20px 0 10px; text-align: left; }
@@ -318,8 +320,14 @@
     /* ===== Panel-inline dropdown (固定相方等) ===== */
     .panel-select-wrap { position: relative; margin-bottom: 14px; }
     .panel-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--text); font-size: 0.95em; cursor: pointer; transition: all 0.2s; text-align: left; }
-    .panel-select-trigger:hover { border-color: var(--accent); }
+    .panel-select-trigger:hover, .panel-select-trigger:focus { border-color: var(--accent); background: var(--panel-2); }
+    .panel-select-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
     .panel-select-dropdown { position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 100; max-height: 60vh; overflow-y: auto; }
+    /* ドロップダウン内の絞り込み入力（項目が多いとき表示）。スクロールしても上部に固定 */
+    .panel-select-search { position: sticky; top: 0; z-index: 1; width: 100%; box-sizing: border-box; padding: 9px 14px; border: none; border-bottom: 1px solid var(--line); background: var(--panel-2); color: var(--text); font-size: 0.9em; color-scheme: dark; }
+    .panel-select-search:focus { outline: none; }
+    .panel-select-empty { padding: 12px 16px; color: var(--muted); font-size: 0.85em; text-align: center; }
+    .panel-select-check { color: var(--accent); font-weight: 700; }
     .panel-select-item { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 12px 16px; border: none; background: none; color: var(--text); font-size: 0.9em; cursor: pointer; text-align: left; transition: all 0.15s; }
     .panel-select-item:hover { background: var(--panel-2); }
     .panel-select-item.active { color: var(--accent); background: var(--bg); font-weight: bold; }
@@ -340,7 +348,7 @@
     .info-icon:hover { color: var(--accent-2); }
 
     /* ===== Modal ===== */
-    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 300; display: flex; align-items: center; justify-content: center; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 300; display: flex; align-items: center; justify-content: center; overscroll-behavior: contain; }
     .modal-content { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px; max-width: 400px; margin: 16px; box-shadow: 0 16px 48px rgba(0,0,0,0.5); }
     .modal-content p { color: var(--text); font-size: 0.9em; line-height: 1.7; margin-bottom: 10px; }
     .modal-close { margin-top: 12px; padding: 10px 24px; border: none; border-radius: 8px; background: var(--accent); color: #062536; font-size: 0.95em; font-weight: bold; cursor: pointer; }
@@ -350,6 +358,209 @@
     .session-expired-banner { background: #4a3800; border: 1px solid #d4a017; border-radius: 8px; padding: 12px; margin-bottom: 16px; color: #ffd54f; font-size: 0.9em; text-align: center; }
 
     .disclaimer { margin-top: 30px; padding: 16px 0; border-top: 1px solid var(--line); text-align: center; font-size: 0.72em; color: #5a6b7a; line-height: 1.8; }
+
+    /* ===== 試合検索 (SearchView) ===== */
+    .search-view { padding-bottom: 40px; }
+    .search-filter-panel { padding: 4px; border-radius: 12px; margin-bottom: 12px; }
+    /* タイル全体がクリック可能な開閉ボタン。専用ボタンは廃止しシェブロンで開閉を示す */
+    .search-filter-head { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      background: none; border: none; padding: 8px 10px; border-radius: 9px; cursor: pointer; text-align: left;
+      color: inherit; font-size: 1em; transition: background 0.15s; }
+    .search-filter-head:hover { background: rgba(79,195,247,0.08); }
+    .search-filter-title { font-size: 1.05em; color: var(--accent); display: flex; align-items: center; gap: 8px; margin: 0; }
+    .search-filter-head .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+    .search-filter-badge { font-size: 0.62em; font-weight: 600; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 2px 8px; letter-spacing: 0.02em; }
+    /* 開閉を示すシェブロン: 閉=下向き(▽)、開=上向き(△)にアニメーション回転 */
+    .search-chevron { width: 9px; height: 9px; flex-shrink: 0; margin-right: 4px; margin-top: -3px;
+      border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent);
+      transform: rotate(45deg); transition: transform 0.2s ease; }
+    .search-filter-head.open .search-chevron, .search-adv-toggle.open .search-chevron, .search-detail-tl-toggle.open .search-chevron { transform: rotate(-135deg); margin-top: 3px; }
+    .search-form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 6px; padding: 0 10px 8px; }
+    .search-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .search-field-wide { grid-column: 1 / -1; }
+    /* 詳細設定（マニアックな数値レンジ）を折りたたむ */
+    .search-adv { grid-column: 1 / -1; border-top: 1px solid var(--line); margin-top: 2px; }
+    .search-adv-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 2px; background: none; border: none; color: var(--muted); font-size: 0.85em; font-weight: 400; cursor: pointer; }
+    .search-adv-toggle:hover, .search-adv-toggle:focus { background: none; color: var(--accent); }
+    .search-adv-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin: 4px 0 8px; }
+    .search-label { margin: 0; color: var(--muted); font-size: 0.8em; }
+    .search-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    /* 敵機などの AND/OR 切り替え（ラベル横の小さなセグメント） */
+    .search-andor { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+    .search-andor-btn { width: auto; background: var(--panel-2); border: none; color: var(--muted); font-size: 0.9em; font-weight: 400; padding: 2px 8px; cursor: pointer; }
+    .search-andor-btn.active { background: var(--accent); color: var(--bg); font-weight: 700; }
+    .search-andor-btn:hover:not(.active), .search-andor-btn:focus:not(.active) { background: var(--panel-2); color: var(--text); }
+    /* 期間トリガー: プルダウン風。クリックで下にカレンダーを開く */
+    .search-date-trigger.open + .cal { margin-top: 8px; }
+    .search-select, .search-num, .search-date, .search-text {
+      width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg); color: var(--text); font-size: 0.9em; color-scheme: dark;
+    }
+    /* 自前の候補ドロップダウン（入力直下に表示） */
+    .search-ac { position: relative; }
+    .search-ac-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30; max-height: 220px; overflow-y: auto;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); padding: 4px; }
+    .search-ac-item { width: 100%; text-align: left; background: none; border: none; border-radius: 6px; color: var(--text); font-size: 0.9em; padding: 8px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .search-ac-item:hover, .search-ac-item:focus { background: var(--panel-2); }
+    /* 絞り込みのプルダウンはレポート画面の .panel-select-* を流用。フォーム内では下マージンを詰め、
+       文字サイズは他の入力欄(0.9em)に合わせて統一する（モバイルの1emも上書き） */
+    .search-field .panel-select-wrap { margin-bottom: 0; }
+    .search-form .panel-select-trigger { font-size: 0.9em; padding: 9px 12px; }
+    .search-form .panel-select-item { font-size: 0.9em; padding: 10px 12px; }
+    .search-select:focus, .search-num:focus, .search-date:focus, .search-text:focus { outline: none; border-color: var(--accent); }
+    .search-range { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .search-range .search-num, .search-range .search-date { flex: 1; min-width: 0; }
+    .search-range-sep { color: var(--muted); font-size: 0.85em; flex-shrink: 0; }
+    .search-field .lens-toggle { align-self: flex-start; }
+    .search-form-actions { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; }
+    .search-count { color: var(--accent); font-size: 0.9em; font-weight: 600; }
+    .search-reset { width: auto; background: none; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 0.8em; padding: 6px 14px; cursor: pointer; transition: all 0.15s; }
+    .search-reset:hover { border-color: var(--bad); color: var(--bad); }
+
+    .search-result-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; flex-wrap: nowrap; }
+    .search-result-head h2 { font-size: 1.05em; color: var(--accent); display: flex; align-items: center; gap: 8px; margin: 0; min-width: 0; white-space: nowrap; }
+    .search-result-head .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); flex-shrink: 0; }
+    .search-result-count { color: var(--muted); font-size: 0.8em; font-weight: 400; }
+    .search-result-tools { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; flex-shrink: 0; }
+    .search-pagesize { min-width: 0; }
+    .search-pagesize .panel-select-wrap { margin-bottom: 0; }
+    .search-pagesize .panel-select-trigger { padding: 6px 10px; font-size: 0.85em; }
+    .search-sort { display: flex; align-items: center; gap: 6px; }
+    /* ソート項目: アイコン付きトリガー＋カスタムドロップダウン */
+    .search-sort-dd { position: relative; }
+    .search-sort-trigger { width: auto; display: inline-flex; align-items: center; justify-content: center; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px; cursor: pointer; }
+    .search-sort-trigger:hover, .search-sort-trigger:focus, .search-sort-trigger.open { border-color: var(--accent); background: var(--panel-2); }
+    .search-sort-ico { width: 24px; height: 24px; fill: var(--accent); display: block; }
+    .search-sort-menu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 20; min-width: 140px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); padding: 4px; }
+    .search-sort-opt { width: 100%; text-align: left; background: none; border: none; border-radius: 6px; color: var(--text); font-size: 0.85em; font-weight: 400; padding: 8px 10px; cursor: pointer; }
+    .search-sort-opt:hover, .search-sort-opt:focus { background: var(--panel-2); }
+    .search-sort-opt.active { color: var(--accent); font-weight: 700; }
+    /* 昇順/降順: 三角アイコンのみのボタン */
+    .search-dir { width: auto; display: inline-flex; align-items: center; justify-content: center; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; color: var(--text); padding: 6px; cursor: pointer; }
+    .search-dir:hover, .search-dir:focus { border-color: var(--accent); background: var(--panel-2); }
+    .search-dir-ico { width: 24px; height: 24px; fill: var(--accent); display: block; }
+
+    .search-list { display: flex; flex-direction: column; gap: 10px; }
+    .search-item {
+      width: 100%; text-align: left; display: flex; flex-direction: column; gap: 8px;
+      background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+      cursor: pointer; transition: border-color 0.15s, transform 0.1s;
+    }
+    .search-item:hover { border-color: var(--accent); }
+    .search-item:active { transform: scale(0.995); }
+    .search-item-top { display: flex; align-items: center; gap: 10px; }
+    .search-item-date { color: var(--muted); font-size: 0.82em; font-variant-numeric: tabular-nums; }
+    .search-item-metric { margin-left: auto; color: var(--accent-2); font-size: 0.82em; font-weight: 600; font-variant-numeric: tabular-nums; }
+    /* 対戦カード: 自陣（自機＋相方）VS 敵陣（敵1＋敵2）を機体画像で並べる */
+    /* 画像行: 自陣(自機+相方) VS 敵陣(敵1+敵2)。画像は枠内で伸縮し被らない */
+    .search-item-battle { display: flex; align-items: center; gap: 10px; }
+    .search-ms-imgs { flex: 1; min-width: 0; display: flex; gap: 6px; align-items: center; }
+    .search-ms-imgs.enemy { justify-content: flex-end; }
+    /* フレックスアイテムはラッパー(.search-ms-slot)側。幅はフレックス配分(basis 0)で確定させ、
+       画像/テキストは width:100% で内側に収める。img自体をフレックスアイテム＋aspect-ratioにすると
+       iOS18以前のSafariが min-width:0 を無視して本来サイズで min-content を算出し、カードから
+       溢れてレイアウトが崩れる（iOS26では解消）。ラッパー方式でそのバグ経路を避ける。 */
+    .search-ms-slot { flex: 1 1 0; min-width: 0; max-width: 74px; }
+    /* max-width はスロットで効くが、アセット混在（古いJSでラッパー無し等）でも巨大化しないよう
+       サムネイル自身にも上限を持たせる保険。 */
+    .search-ms-thumb { display: block; width: 100%; max-width: 74px; height: auto; aspect-ratio: 1 / 1; border-radius: 8px; border: 1px solid var(--line); object-fit: cover; background: var(--bg); }
+    .search-ms-thumb-text { display: flex; align-items: center; justify-content: center; text-align: center; padding: 3px; font-size: 0.66em; line-height: 1.2; color: var(--muted); overflow: hidden; }
+    /* 公式スプライト win_lose_vs.png(451x138) から VS 部分だけを background-position で切り出す */
+    .search-item-vs { flex-shrink: 0; width: 54px; height: 44px;
+      background-image: url("https://resource.exvs2ib.vsmobile.jp/css/images/common/win_lose_vs.png");
+      background-repeat: no-repeat; background-size: 161px 49px; background-position: -99px 0;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); }
+    /* 名前行: チーム単位で縦2段（自機+僚機 / 敵1+敵2）。自陣は左寄せ・敵陣は右寄せで
+       各チームが半カード幅を使えるため、名前は省略されずフル表示になる。長い名前は横に溢れず
+       最大2行で折り返し、超過分のみ末尾を省略する。 */
+    .search-item-namesrow { display: flex; align-items: flex-start; gap: 12px; margin-top: 2px; }
+    .search-item-names { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .search-item-names.enemy { align-items: flex-end; text-align: right; }
+    /* 名前は最大2行。半幅に収まらない長い名前は折り返し、2行を超える分だけ省略する。 */
+    .search-name-line { font-size: 0.74em; line-height: 1.3; color: var(--muted); max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+    @media (max-width: 480px) { .search-name-line { font-size: 0.68em; } }
+    @media (max-width: 380px) { .search-name-line { font-size: 0.62em; } }
+    .search-empty { color: var(--muted); text-align: center; padding: 24px 0; }
+
+    .search-pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 16px; }
+    .search-page-btn { width: auto; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; color: var(--accent); font-size: 0.85em; padding: 8px 16px; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+    .search-page-btn:hover:not(:disabled) { border-color: var(--accent); background: rgba(79,195,247,0.1); }
+    .search-page-btn:disabled { color: #566; cursor: default; opacity: 0.5; }
+    .search-page-info { color: var(--muted); font-size: 0.82em; font-variant-numeric: tabular-nums; }
+
+    .search-detail {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 20px;
+      max-width: 520px; width: 100%; margin: 16px; max-height: calc(100vh - 32px); overflow-y: auto;
+      overscroll-behavior: contain; box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+    }
+    .search-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+    .search-detail-date { margin-left: 8px; color: var(--muted); font-size: 0.88em; font-variant-numeric: tabular-nums; }
+    .search-detail-close { width: auto; background: none; border: none; color: var(--muted); font-size: 1.1em; cursor: pointer; padding: 4px 8px; line-height: 1; }
+    .search-detail-close:hover { color: var(--text); }
+    .search-detail-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+    .search-detail-table th, .search-detail-table td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+    .search-detail-table thead th { color: var(--accent); font-weight: 600; vertical-align: bottom; }
+    .search-detail-table tbody th { color: var(--muted); font-weight: 400; }
+    /* 数値列は機体画像の下に中央揃えで並べる */
+    .search-detail-table td.num, .search-detail-table th.num { text-align: center; font-variant-numeric: tabular-nums; }
+    /* 列見出し: 機体画像を中央配置（役割文字・名前は出さない） */
+    .search-detail-col { text-align: center; vertical-align: bottom; }
+    .search-detail-thumb { display: block; width: 48px; height: 48px; margin: 0 auto; border-radius: 7px; border: 1px solid var(--line); object-fit: cover; background: var(--bg); }
+    .search-detail-thumb-text { display: flex; align-items: center; justify-content: center; text-align: center; padding: 2px; font-size: 0.5em; line-height: 1.1; color: var(--muted); overflow: hidden; }
+    /* 自陣と敵陣の間(敵1列の左)に区切り線。値の色は分析と同じ基準で色分け */
+    .search-detail-table th.team-sep, .search-detail-table td.team-sep { border-left: 2px solid var(--line); }
+    /* レーダーの表示切替チェックボックス（機体画像＋系列色スウォッチ。役割文字なし） */
+    .search-radar-toggles { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 4px 0 2px; }
+    /* トグルボタン: 活性=通常表示、非活性(off)=淡色化で状態を示す（チェックボックスは廃止） */
+    .search-radar-toggle { width: auto; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px 4px 6px; border: 1px solid var(--line); border-radius: 999px; cursor: pointer; background: var(--panel-2); color: inherit; font-size: 1em; font-weight: 400; transition: opacity 0.15s; }
+    /* 状態は活性/非活性(不透明度)だけで示す。hover/focusでグローバルbuttonの青背景が出ないよう固定 */
+    .search-radar-toggle:hover, .search-radar-toggle:focus { background: var(--panel-2); }
+    .search-radar-toggle.off { opacity: 0.4; background: transparent; }
+    .search-radar-toggle.off:hover, .search-radar-toggle.off:focus { background: transparent; }
+    .search-radar-toggle.off .search-radar-swatch { filter: grayscale(1); }
+    .search-radar-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+    .search-radar-toggle .search-detail-thumb { width: 26px; height: 26px; margin: 0; border-radius: 5px; }
+    .search-radar-toggle .search-detail-thumb-text { font-size: 0.42em; }
+    /* 試合経過の折りたたみトグル（既定は畳む） */
+    .search-detail-tl-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: none; border: none; border-top: 1px solid var(--line); margin-top: 14px; padding: 12px 2px 4px; cursor: pointer; color: inherit; font-size: 1em; }
+    .search-detail-tl-toggle:hover, .search-detail-tl-toggle:focus { background: none; }
+    .search-detail-tl-toggle:hover .search-detail-tl-title { color: var(--accent); }
+    .search-detail-tl-title { font-size: 0.95em; color: var(--accent-2); margin: 0; }
+    .search-detail-empty { color: var(--muted); font-size: 0.88em; }
+    /* 試合経過ガント（公式風の横棒タイムライン） */
+    .gantt { display: flex; flex-direction: column; gap: 6px; }
+    /* 行の重なり領域。縦の補助線（点線）を全行にまたがって重ねる */
+    .gantt-rows { position: relative; display: flex; flex-direction: column; gap: 6px; }
+    .gantt-grid { position: absolute; top: 0; bottom: 0; left: 42px; right: 0; pointer-events: none; z-index: 4; }
+    .gantt-gridline { position: absolute; top: -2px; bottom: -2px; width: 0; border-left: 1px dashed rgba(255,255,255,0.09); }
+    .gantt-gridline-major { border-left-color: rgba(255,255,255,0.20); }
+    .gantt-row { display: flex; align-items: center; gap: 8px; }
+    .gantt-row .search-detail-thumb { width: 34px; height: 34px; margin: 0; flex-shrink: 0; }
+    .gantt-track { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .gantt-lane { position: relative; height: 11px; background: var(--bg); border-radius: 3px; }
+    .gantt-bar { position: absolute; top: 0; height: 100%; border-radius: 3px; min-width: 2px; }
+    .gantt-bar.gantt-ex, .gantt-bar.gantt-ov { z-index: 1; }
+    .gantt-bar.gantt-f, .gantt-bar.gantt-s, .gantt-bar.gantt-e, .gantt-bar.gantt-ov-on { z-index: 2; }
+    /* 帯・凡例スウォッチ共通の色 */
+    .gantt-ex { background: #5a6b7a; }
+    .gantt-f { background: #ff5722; }
+    .gantt-s { background: #2196f3; }
+    .gantt-e { background: #4caf50; }
+    .gantt-ov { background: rgba(255,255,255,0.18); border: 1px solid #cfd8e0; }
+    .gantt-ov-on { background: #eef2f5; }
+    /* 発動タイミングの菱形（覚醒・OL）。色は .gantt-{f,s,e,ov-on} を流用 */
+    .gantt-diamond { position: absolute; top: 50%; width: 9px; height: 9px; transform: translate(-50%, -50%) rotate(45deg); border-radius: 1px; z-index: 3; box-shadow: 0 0 0 1px rgba(0,0,0,0.35); }
+    .gantt-death { position: absolute; top: 50%; transform: translate(-50%, -50%); color: var(--terrible); font-weight: 800; font-size: 0.9em; z-index: 3; text-shadow: 0 0 2px var(--bg); pointer-events: none; }
+    .gantt-axis { position: relative; height: 14px; margin-left: 42px; margin-top: 2px; }
+    .gantt-tick { position: absolute; transform: translateX(-50%); color: var(--muted); font-size: 0.6em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .gantt-legend { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 10px; font-size: 0.75em; color: var(--muted); }
+    .gantt-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+    .gantt-legend-break { flex-basis: 100%; height: 0; }
+    .gantt-legend-swatch { width: 16px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+    /* 発動系（菱形）は凡例も菱形で示す */
+    .gantt-legend-swatch.gantt-f, .gantt-legend-swatch.gantt-s, .gantt-legend-swatch.gantt-e, .gantt-legend-swatch.gantt-ov-on { width: 10px; height: 10px; transform: rotate(45deg); border-radius: 1px; }
+    .gantt-legend-swatch.gantt-death { position: static; transform: none; width: 16px; height: 10px; background: none; border: none; display: inline-flex; align-items: center; justify-content: center; line-height: 1; color: var(--terrible); font-weight: 800; text-shadow: none; }
+    .gantt-legend-swatch.gantt-death::before { content: '✕'; display: block; }
 
     @media (max-width: 720px) {
       .kpi-grid { grid-template-columns: repeat(2, 1fr); }
@@ -384,6 +595,10 @@
       .panel-select-item { padding: 14px 16px; font-size: 1em; }
       .period-custom-range { flex-direction: column; }
       .period-custom { min-width: 0; }
+      .search-form { grid-template-columns: 1fr; }
+      /* 狭幅では1行維持のため「検索結果」ラベルを省きカウントのみ表示 */
+      .search-result-label { display: none; }
+      .search-pagesize .panel-select-trigger { padding: 6px 8px; }
     }
   </style>
 </head>

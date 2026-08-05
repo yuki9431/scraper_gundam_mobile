@@ -4,6 +4,29 @@
 
 export var PERIOD_DAYS = { '90d': 90, '60d': 60, '30d': 30, '14d': 14, '7d': 7, '3d': 3, '1d': 1 };
 
+// 基本データ各指標の基準レンジ [0%側の値, 100%側の値]。レーダー等の0-100正規化で共有する。
+// 守備系(被ダメ・被撃墜)は「小さいほど良い」ため大小を逆に置く。
+export var METRIC_RANGE = {
+  dmgGiven: [600, 1200],
+  kills: [0.5, 2.5],
+  bursts: [0, 2.5],
+  dmgTaken: [1200, 600],
+  deaths: [2.5, 0.5],
+  exDmg: [80, 250],
+};
+
+// 値を [min, max] 基準で 0-100 に写像（min>max の反転軸も同式で処理）。null は 0。
+export function clampN(v, min, max) {
+  if (v == null) return 0;
+  return Math.max(0, Math.min(100, (v - min) / (max - min) * 100));
+}
+
+// METRIC_RANGE のキーで指標を 0-100 に正規化する。基本データ・レーダーで共用。
+export function clampMetric(v, key) {
+  var r = METRIC_RANGE[key];
+  return clampN(v, r[0], r[1]);
+}
+
 var COST_LABEL = {3000: '3000コスト', 2500: '2500コスト', 2000: '2000コスト', 1500: '1500コスト'};
 var COST_FATAL_DEATHS = {3000: 2, 2500: 3, 2000: 3, 1500: 4};
 var TEAM_DEATH_MAX = 3;   // これ以上は "3+" に集約

@@ -16,6 +16,7 @@ import (
 type matchDoc struct {
 	Datetime   time.Time   `firestore:"datetime"`
 	GameEndSec float64     `firestore:"game_end_sec"`
+	MatchID    string      `firestore:"match_id"`
 	Players    []playerDoc `firestore:"players"`
 }
 
@@ -83,20 +84,22 @@ func SaveScores(userKey string, scores model.DatedScores) {
 		return
 	}
 
-	groups := groupByDatetime(scores)
+	groups := groupByMatch(scores)
 	matchesCol := userRef.Collection("matches")
 
 	var count int
 	bw := c.BulkWriter(ctx)
 
-	for key, entries := range groups {
+	for _, entries := range groups {
 		if len(entries) != 4 {
-			log.Printf("[WARN] Firestore: match %s has %d players (expected 4), skipping", key, len(entries))
+			log.Printf("[WARN] Firestore: match %s has %d players (expected 4), skipping",
+				entries[0].Datetime.Format(model.MatchKeyFormat), len(entries))
 			continue
 		}
 		doc := buildMatchDoc(entries)
-		if _, err := bw.Set(matchesCol.Doc(key), doc); err != nil {
-			log.Printf("[WARN] Firestore: failed to enqueue match %s: %v", key, err)
+		docID := matchDocID(entries)
+		if _, err := bw.Set(matchesCol.Doc(docID), doc); err != nil {
+			log.Printf("[WARN] Firestore: failed to enqueue match %s: %v", docID, err)
 			continue
 		}
 		count++
@@ -127,6 +130,36 @@ func LoadScores(userKey string) (model.DatedScores, error) {
 		return nil, fmt.Errorf("query matches: %w", err)
 	}
 
+	return docsToScores(docs), nil
+}
+
+// LoadScoresAfter はFirestoreからユーザーのafterより後（>）のmatchesのみ読み取り、
+// datetime昇順のDatedScoresで返す。差分取得用に全量読み取りを避けるためのクエリレベルフィルタ。
+// 境界はBuildMatchDataのメモリフィルタ（Datetime.After(after)）と揃えて厳密な `>` とする。
+func LoadScoresAfter(userKey string, after time.Time) (model.DatedScores, error) {
+	c := getClient()
+	if c == nil {
+		return nil, fmt.Errorf("firestore client not initialized")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), loadScoresTimeout)
+	defer cancel()
+
+	userRef := c.Collection("users").Doc(userKey)
+	docs, err := userRef.Collection("matches").
+		Where("datetime", ">", after).
+		OrderBy("datetime", firestore.Asc).
+		Documents(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("query matches after %s: %w", after.Format(time.RFC3339), err)
+	}
+
+	return docsToScores(docs), nil
+}
+
+// docsToScores はmatchesドキュメント群をDatedScoresに変換する。
+// 各試合のMatchTimelineはPlayerNo==1のDatedScoreにセットされる。
+func docsToScores(docs []*firestore.DocumentSnapshot) model.DatedScores {
 	scores := make(model.DatedScores, 0, len(docs)*4)
 	for _, doc := range docs {
 		var md matchDoc
@@ -141,6 +174,7 @@ func LoadScores(userKey string) (model.DatedScores, error) {
 			ds := model.DatedScore{
 				PlayerNo: p.PlayerNo,
 				Datetime: md.Datetime,
+				MatchID:  md.MatchID,
 				PlayerScore: model.PlayerScore{
 					City:            p.City,
 					Name:            p.Name,
@@ -171,7 +205,7 @@ func LoadScores(userKey string) (model.DatedScores, error) {
 		}
 	}
 
-	return scores, nil
+	return scores
 }
 
 // GetLatestDatetime はFirestoreからユーザーの最新試合日時を取得する。
@@ -200,49 +234,27 @@ func GetLatestDatetime(userKey string) (time.Time, error) {
 	return md.Datetime, nil
 }
 
-// BackfillDates は直近30日以内でms_proficiencyが空のmatchesの日付セットを返す。
-func BackfillDates(userKey string) map[string]bool {
-	dates := make(map[string]bool)
-
-	c := getClient()
-	if c == nil {
-		return dates
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	defer cancel()
-
-	cutoff := time.Now().AddDate(0, 0, -30)
-	userRef := c.Collection("users").Doc(userKey)
-	docs, err := userRef.Collection("matches").Where("datetime", ">=", cutoff).Documents(ctx).GetAll()
-	if err != nil {
-		log.Printf("[WARN] Firestore: failed to get backfill dates: %v", err)
-		return dates
-	}
-
-	for _, doc := range docs {
-		var md matchDoc
-		if err := doc.DataTo(&md); err != nil {
-			continue
-		}
-		for _, p := range md.Players {
-			if p.MsProficiency == "" {
-				dates[md.Datetime.Format("2006/01/02")] = true
-				break
-			}
-		}
-	}
-	return dates
-}
-
-// groupByDatetime はDatedScoresをdatetimeでグルーピングする。
-func groupByDatetime(scores model.DatedScores) map[string][]model.DatedScore {
+// groupByMatch はDatedScoresをGroupKey()（MatchIDがあればそれ、無ければ分精度）でグルーピングする。
+// #358: 分精度単独でグルーピングすると同一分の複数試合が1グループ8件に混ざり、
+// len(entries)!=4判定で両試合とも欠落してしまう。
+func groupByMatch(scores model.DatedScores) map[string][]model.DatedScore {
 	groups := make(map[string][]model.DatedScore)
 	for _, s := range scores {
-		key := s.Datetime.Format(model.MatchKeyFormat)
+		key := s.GroupKey()
 		groups[key] = append(groups[key], s)
 	}
 	return groups
+}
+
+// matchDocID は試合のFirestore doc IDを構築する。
+// 分精度の日時をベースに、MatchIDがあれば"_"+MatchIDを付与して同一分の複数試合を区別する。
+// legacy（MatchID未設定）は従来通りsuffixなし（既存doc IDとの後方互換）。
+func matchDocID(entries []model.DatedScore) string {
+	base := entries[0].Datetime.Format(model.MatchKeyFormat)
+	if entries[0].MatchID != "" {
+		return base + "_" + entries[0].MatchID
+	}
+	return base
 }
 
 // buildMatchDoc はグルーピングされたDatedScoresからmatchDocを構築する。
@@ -301,6 +313,7 @@ func buildMatchDoc(entries []model.DatedScore) matchDoc {
 	return matchDoc{
 		Datetime:   entries[0].Datetime,
 		GameEndSec: gameEndSec,
+		MatchID:    entries[0].MatchID,
 		Players:    players,
 	}
 }

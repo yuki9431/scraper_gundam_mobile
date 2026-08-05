@@ -153,26 +153,13 @@ func Run(j *Job, username, password string, on403 ...On403Func) {
 	}
 	exists := len(existingScores) > 0
 
-	// バックフィル判定: Firestoreから新フィールドが空のレコードがある日付を特定
-	var backfillDates map[string]bool
 	if exists {
-		backfillDates = fs.BackfillDates(j.UserKey)
-		if len(backfillDates) > 0 {
-			log.Printf("[INFO] Backfill needed: %d dates with missing data", len(backfillDates))
+		since, err = fs.GetLatestDatetime(j.UserKey)
+		if err != nil {
+			log.Printf("[WARN] Failed to read latest datetime from Firestore: %v", err)
 		}
-	}
-
-	if exists {
-		if len(backfillDates) > 0 {
-			log.Printf("[INFO] Backfill mode: targeting specific dates")
-		} else {
-			since, err = fs.GetLatestDatetime(j.UserKey)
-			if err != nil {
-				log.Printf("[WARN] Failed to read latest datetime from Firestore: %v", err)
-			}
-			if !since.IsZero() {
-				log.Printf("[INFO] Fetching scores after %s", since.Format("2006-01-02 15:04"))
-			}
+		if !since.IsZero() {
+			log.Printf("[INFO] Fetching scores after %s", since.Format("2006-01-02 15:04"))
 		}
 
 		// 既存データから速報マッチデータを生成
@@ -238,9 +225,6 @@ func Run(j *Job, username, password string, on403 ...On403Func) {
 		},
 		SavedJar: j.SavedJar,
 		Context:  j.ctx,
-	}
-	if len(backfillDates) > 0 {
-		scrapingOpt.BackfillDates = backfillDates
 	}
 
 	var datedScores model.DatedScores
@@ -448,20 +432,28 @@ func CleanupJobs(ttl time.Duration) {
 }
 
 // mergeScores は既存のscoresに新規scoresをマージする。
-// バックフィル時に同じdatetimeのレコードがある場合は新規側で上書きする。
+// バックフィル時に同じ試合のレコードがある場合は新規側で上書きする。
+// #358: 分精度dedupは同一分の別試合まで巻き添えで破棄してしまうため、MatchID対応にしている。
+// 既存にMatchIDがあれば精密一致（GroupKey）でのみ破棄し、同一分の兄弟試合は保持する。
+// 既存がlegacy（MatchID未設定）なら、その分が新規側で再スクレイプされた場合にのみ置換する。
 func mergeScores(existing, newScores model.DatedScores) model.DatedScores {
-	newKeys := make(map[string]bool)
+	newGroupKeys := make(map[string]bool)
+	newMinutes := make(map[string]bool)
 	for _, s := range newScores {
-		key := s.Datetime.Format(model.MatchKeyFormat)
-		newKeys[key] = true
+		newGroupKeys[s.GroupKey()] = true
+		newMinutes[s.Datetime.Format(model.MatchKeyFormat)] = true
 	}
 
 	merged := make(model.DatedScores, 0, len(existing)+len(newScores))
 	for _, s := range existing {
-		key := s.Datetime.Format(model.MatchKeyFormat)
-		if !newKeys[key] {
-			merged = append(merged, s)
+		if s.MatchID != "" {
+			if newGroupKeys[s.GroupKey()] {
+				continue
+			}
+		} else if newMinutes[s.Datetime.Format(model.MatchKeyFormat)] {
+			continue
 		}
+		merged = append(merged, s)
 	}
 	merged = append(merged, newScores...)
 

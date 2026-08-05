@@ -10,6 +10,9 @@ jobs:
       contents: write
       id-token: write
       actions: write
+    env:
+      # 起動時のバージョン確認HTTPリクエストを省略（CIでは通知不要）
+      PULUMI_SKIP_UPDATE_CHECK: "true"
 
     steps:
       - uses: actions/checkout@v6
@@ -31,7 +34,6 @@ jobs:
       - name: Get stg image and set to prod
         working-directory: infra/app
         run: |
-          npm install -g @pulumi/pulumi 2>/dev/null || true
           pulumi login gs://${{ secrets.PULUMI_STATE_BUCKET }}
 
           pulumi stack select stg

@@ -11,11 +11,13 @@ import (
 	"net/mail"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/yuki9431/catalyzer/internal/firestore"
 	"github.com/yuki9431/catalyzer/internal/model"
+	"github.com/yuki9431/catalyzer/internal/mslist"
 	"github.com/yuki9431/catalyzer/internal/pipeline"
 	"github.com/yuki9431/catalyzer/internal/session"
 	"golang.org/x/time/rate"
@@ -222,6 +224,23 @@ func StartServer() {
 		handleMatches(w, r)
 	})
 
+	// GET /ms-list → MSリスト（機体名→画像URL）を配信。
+	// フロントの試合検索一覧が機体名から公式CDNのサムネイル画像を解決するために使う。
+	// 起動時に一度だけ読み込む（静的データ。失敗時は空を返し、フロントは機体名テキストにフォールバック）。
+	msList, mserr := mslist.LoadMSList(pipeline.DefaultMSListPath)
+	if mserr != nil {
+		log.Printf("[WARN] Failed to load MS list for /ms-list: %v", mserr)
+		msList = []model.MSInfo{}
+	}
+	http.HandleFunc("/ms-list", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		sendJSON(w, http.StatusOK, msList)
+	})
+
 	// GET /session → セッションの有効性チェック（キャッシュレポート付き）
 	http.HandleFunc("/session", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -250,7 +269,7 @@ func StartServer() {
 		log.Printf("[WARN] Failed to register webmanifest MIME type: %v", err)
 	}
 	fs := http.FileServer(http.Dir("static"))
-	http.Handle("/", fs)
+	http.Handle("/", staticCacheControl(fs))
 
 	log.Printf("[INFO] Server starting on port %s", port)
 	handler := basicAuth(securityHeaders(http.DefaultServeMux), "/health")
@@ -364,11 +383,27 @@ func handleMatches(w http.ResponseWriter, r *http.Request) {
 }
 
 // securityHeaders は全レスポンスにセキュリティヘッダーを付与する
+// staticCacheControl は HTML/JS を常に再検証（no-cache）させる。
+// アセットにバージョニングが無いため、デプロイ直後にブラウザが古いHTMLと新しいJS
+// （またはその逆）を混在してキャッシュし、レイアウトが崩れるのを防ぐ。FileServer の
+// Last-Modified / If-Modified-Since により実体が変わらなければ 304 で返るため負荷は小さい。
+// 画像や webmanifest 等は変更頻度が低くヒューリスティックキャッシュで問題ないため対象外。
+func staticCacheControl(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		if p == "/" || strings.HasSuffix(p, ".html") || strings.HasSuffix(p, ".js") {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'")
+		// img-src に公式リソースCDNを許可（試合検索一覧で機体サムネイル画像を表示するため。画像のみ）
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https://resource.exvs2ib.vsmobile.jp")
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		next.ServeHTTP(w, r)
 	})

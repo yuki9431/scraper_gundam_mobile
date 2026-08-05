@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { esc, pct, num, cellValue, cellDisplay } from '../lib/format.js';
+import { esc, pct, num, cellValue, cellDisplay, isTimeUp, TIMEUP_SEC } from '../lib/format.js';
 
 // --- esc ---
 
@@ -106,5 +106,25 @@ describe('cellDisplay', function () {
 
   it('handles null', function () {
     assert.equal(cellDisplay(null), null);
+  });
+});
+
+// --- isTimeUp ---
+
+describe('isTimeUp', function () {
+  it('returns true when game_end_sec reaches the time limit', function () {
+    assert.equal(isTimeUp({ game_end_sec: TIMEUP_SEC }), true);
+    assert.equal(isTimeUp({ game_end_sec: TIMEUP_SEC + 5 }), true);
+  });
+
+  it('returns false when the match ended before the time limit', function () {
+    assert.equal(isTimeUp({ game_end_sec: 143 }), false);
+    assert.equal(isTimeUp({ game_end_sec: TIMEUP_SEC - 1 }), false);
+  });
+
+  it('returns false when game_end_sec is missing or zero', function () {
+    assert.equal(isTimeUp({ game_end_sec: 0 }), false);
+    assert.equal(isTimeUp({}), false);
+    assert.equal(isTimeUp(null), false);
   });
 });
