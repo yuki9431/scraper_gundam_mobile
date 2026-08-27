@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchRecordId, schemaMismatch } from '../lib/db.js';
+import { matchRecordId, needsRebuild } from '../lib/db.js';
+
+function rec(schemaVersion) {
+  return { match_id: 'm', schema_version: schemaVersion };
+}
 
 describe('matchRecordId', function () {
   it('produces distinct ids for same date but different match_id (#358 regression)', function () {
@@ -20,24 +24,36 @@ describe('matchRecordId', function () {
   });
 });
 
-describe('schemaMismatch', function () {
-  it('treats missing cached version as mismatch (undefined,1)', function () {
-    assert.equal(schemaMismatch(undefined, 1), true);
+describe('needsRebuild', function () {
+  it('does not rebuild when every record is on the current version', function () {
+    assert.equal(needsRebuild([rec(1), rec(1), rec(1)], 1), false);
   });
 
-  it('matches when versions are equal (1,1)', function () {
-    assert.equal(schemaMismatch(1, 1), false);
+  it('rebuilds when every record is stale', function () {
+    assert.equal(needsRebuild([rec(1), rec(1)], 2), true);
   });
 
-  it('mismatches when cached is older (1,2)', function () {
-    assert.equal(schemaMismatch(1, 2), true);
+  // 速報バッチの部分保存が中断すると新旧が混在する。loadMatchesFromDBの並びはid辞書順なので
+  // 先頭に現行版が来ることがあり、先頭1件のサンプリングでは検知漏れしていた。
+  it('rebuilds when versions are mixed and the first record is current', function () {
+    assert.equal(needsRebuild([rec(2), rec(2), rec(1)], 2), true);
   });
 
-  it('mismatches when cached is newer (2,1)', function () {
-    assert.equal(schemaMismatch(2, 1), true);
+  it('rebuilds when records predate schema stamping (undefined)', function () {
+    assert.equal(needsRebuild([rec(undefined), rec(undefined)], 1), true);
   });
 
-  it('treats unresolvable server version as no mismatch (1,null)', function () {
-    assert.equal(schemaMismatch(1, null), false);
+  it('rebuilds when a record is newer than the server (rollback)', function () {
+    assert.equal(needsRebuild([rec(2)], 1), true);
+  });
+
+  it('does not rebuild when the server version is unresolvable', function () {
+    assert.equal(needsRebuild([rec(1)], null), false);
+    assert.equal(needsRebuild([rec(1)], undefined), false);
+  });
+
+  it('does not rebuild on an empty or missing cache', function () {
+    assert.equal(needsRebuild([], 1), false);
+    assert.equal(needsRebuild(null, 1), false);
   });
 });
