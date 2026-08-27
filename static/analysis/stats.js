@@ -677,6 +677,63 @@ export function computeBurstCount(matches) {
   return { by_count: results, tips: tips };
 }
 
+// タブ別KPI用の派生指標。computeBurstCount の結果から
+// 「2回以上覚醒」「未覚醒(0回)」の割合と加重勝率を算出する。
+// データ無し（null や空）のときは各値 null を返す。
+export function burstKpi(burstCount) {
+  var empty = { rate2: null, winRate2: null, rate0: null, winRate0: null };
+  if (!burstCount || !burstCount.by_count || !burstCount.by_count.length) return empty;
+  var byCount = burstCount.by_count;
+  var total = 0;
+  byCount.forEach(function (b) { total += b.matches; });
+  if (total === 0) return empty;
+
+  // 加重勝率: win_rate は各グループの割合なので試合数で重み付けして合算する
+  function group(predicate) {
+    var m = 0, wins = 0;
+    byCount.forEach(function (b) {
+      if (!predicate(b.count)) return;
+      m += b.matches;
+      wins += b.win_rate / 100 * b.matches;
+    });
+    return {
+      rate: round1(m / total * 100),
+      winRate: m ? round1(wins / m * 100) : null,
+    };
+  }
+
+  var two = group(function (c) { return c >= 2; });
+  var zero = group(function (c) { return c === 0; });
+  return { rate2: two.rate, winRate2: two.winRate, rate0: zero.rate, winRate0: zero.winRate };
+}
+
+// タブ別KPI用。computeTimeOfDay の結果から勝率が最高/最低の時間帯を返す。
+// minMatches 以上の時間帯を対象にし、該当が無ければ全時間帯にフォールバックする。
+export function bestWorstHour(timeOfDay, minMatches) {
+  if (minMatches === undefined) minMatches = 3;
+  if (!timeOfDay || !timeOfDay.hours || !timeOfDay.hours.length) return { best: null, worst: null };
+  var hours = timeOfDay.hours.filter(function (h) { return h.matches >= minMatches; });
+  if (!hours.length) hours = timeOfDay.hours;
+  var best = hours[0], worst = hours[0];
+  hours.forEach(function (h) {
+    if (h.win_rate > best.win_rate) best = h;
+    if (h.win_rate < worst.win_rate) worst = h;
+  });
+  return { best: best, worst: worst };
+}
+
+// タブ別KPI用。computePartner の結果（試合数降順）から
+// ユニーク相方数・最多相方・最高勝率相方を返す。
+export function partnerKpi(partner) {
+  if (!partner || !partner.length) return { count: 0, top: null, bestWinRate: null };
+  var top = partner[0]; // computePartner は試合数降順ソート済み
+  var best = partner[0];
+  partner.forEach(function (p) {
+    if (p.win_rate > best.win_rate) best = p;
+  });
+  return { count: partner.length, top: top, bestWinRate: best };
+}
+
 export function computeFallOrder(matches) {
   var noFall = [], firstFall = [], secondFall = [], sameTime = [];
   matches.forEach(function (d) {

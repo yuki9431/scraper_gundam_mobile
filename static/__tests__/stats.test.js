@@ -20,6 +20,9 @@ import {
   computeBurstTiming,
   computeBurstType,
   computeFixedPartners,
+  burstKpi,
+  bestWorstHour,
+  partnerKpi,
 } from '../analysis/stats.js';
 
 function makeMatch(overrides) {
@@ -718,5 +721,115 @@ describe('computeFixedPartners', function () {
     var matches = makeMatches(5, { partner_name: '別の人' });
     var result = computeFixedPartners(matches, tagPartners);
     assert.deepEqual(result.partners, []);
+  });
+});
+
+// --- burstKpi (タブ別KPI: 覚醒) ---
+
+describe('burstKpi', function () {
+  it('returns nulls for null / empty input', function () {
+    var empty = { rate2: null, winRate2: null, rate0: null, winRate0: null };
+    assert.deepEqual(burstKpi(null), empty);
+    assert.deepEqual(burstKpi({ by_count: [] }), empty);
+    assert.deepEqual(burstKpi({}), empty);
+  });
+
+  it('computes 2覚醒以上/未覚醒 の割合と加重勝率', function () {
+    // count>=2: 2回(4試合,勝率50) + 3回(1試合,勝率100) → 5/10=50%, 加重勝率=(2+1)/5=60%
+    // count==0: 2試合,勝率0 → 2/10=20%, 勝率0
+    var burstCount = {
+      by_count: [
+        { count: 0, matches: 2, win_rate: 0 },
+        { count: 1, matches: 3, win_rate: 100 },
+        { count: 2, matches: 4, win_rate: 50 },
+        { count: 3, matches: 1, win_rate: 100 },
+      ],
+    };
+    var r = burstKpi(burstCount);
+    assert.equal(r.rate2, 50);
+    assert.equal(r.winRate2, 60);
+    assert.equal(r.rate0, 20);
+    assert.equal(r.winRate0, 0);
+  });
+
+  it('winRate は該当試合が無ければ null（割合は 0）', function () {
+    var r = burstKpi({ by_count: [{ count: 1, matches: 5, win_rate: 40 }] });
+    assert.equal(r.rate2, 0);
+    assert.equal(r.winRate2, null);
+    assert.equal(r.rate0, 0);
+    assert.equal(r.winRate0, null);
+  });
+
+  it('computeBurstCount の実出力を受け取れる', function () {
+    var matches = makeMatches(3, { bursts: 2, win: true, actions: [{ event: 'x' }] });
+    var r = burstKpi(computeBurstCount(matches));
+    assert.equal(r.rate2, 100);
+    assert.equal(r.winRate2, 100);
+  });
+});
+
+// --- bestWorstHour (タブ別KPI: 時間帯) ---
+
+describe('bestWorstHour', function () {
+  it('returns nulls for null / empty', function () {
+    assert.deepEqual(bestWorstHour(null), { best: null, worst: null });
+    assert.deepEqual(bestWorstHour({ hours: [] }), { best: null, worst: null });
+  });
+
+  it('picks max/min win_rate among hours meeting minMatches', function () {
+    var tod = { hours: [
+      { hour: 10, matches: 5, win_rate: 70 },
+      { hour: 14, matches: 5, win_rate: 30 },
+      { hour: 20, matches: 1, win_rate: 100 }, // 閾値未満で除外
+    ] };
+    var r = bestWorstHour(tod, 3);
+    assert.equal(r.best.hour, 10);
+    assert.equal(r.worst.hour, 14);
+  });
+
+  it('falls back to all hours when none meet minMatches', function () {
+    var tod = { hours: [
+      { hour: 9, matches: 1, win_rate: 40 },
+      { hour: 21, matches: 2, win_rate: 80 },
+    ] };
+    var r = bestWorstHour(tod, 5);
+    assert.equal(r.best.hour, 21);
+    assert.equal(r.worst.hour, 9);
+  });
+
+  it('computeTimeOfDay の実出力を受け取れる', function () {
+    var matches = makeMatches(5, function (i) { return { date: '2025-06-15 14:0' + i }; });
+    var r = bestWorstHour(computeTimeOfDay(matches));
+    assert.equal(r.best.hour, 14);
+    assert.equal(r.worst.hour, 14);
+  });
+});
+
+// --- partnerKpi (タブ別KPI: 機体相性) ---
+
+describe('partnerKpi', function () {
+  it('returns zero/nulls for null / empty', function () {
+    assert.deepEqual(partnerKpi(null), { count: 0, top: null, bestWinRate: null });
+    assert.deepEqual(partnerKpi([]), { count: 0, top: null, bestWinRate: null });
+  });
+
+  it('top は先頭（試合数降順前提）、bestWinRate は最高勝率', function () {
+    var partner = [
+      { ms: 'A', matches: 10, win_rate: 40 },
+      { ms: 'B', matches: 5, win_rate: 90 },
+      { ms: 'C', matches: 3, win_rate: 60 },
+    ];
+    var r = partnerKpi(partner);
+    assert.equal(r.count, 3);
+    assert.equal(r.top.ms, 'A');
+    assert.equal(r.bestWinRate.ms, 'B');
+  });
+
+  it('computePartner の実出力を受け取れる', function () {
+    var matches = makeMatches(4, { partner_ms: 'ザク', win: true });
+    var r = partnerKpi(computePartner(matches));
+    assert.equal(r.count, 1);
+    assert.equal(r.top.ms, 'ザク');
+    assert.equal(r.bestWinRate.ms, 'ザク');
   });
 });
