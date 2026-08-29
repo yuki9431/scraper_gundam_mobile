@@ -215,3 +215,84 @@ func TestParseMatchTimeline_Empty(t *testing.T) {
 		t.Error("expected nil timeline for script without dataset.push")
 	}
 }
+
+// サイト構造が変わって必須項目が取れない詳細ページを渡してもpanicせず
+// スキップされることを確認する（goroutine内のpanicはプロセスを落とすため）
+func TestParseDetailPage_MissingFields(t *testing.T) {
+	tests := []struct {
+		name string
+		html string
+	}{
+		{
+			name: "空のpanel_area",
+			html: `<div class="panel_area"></div>`,
+		},
+		{
+			name: "プレイヤー4人分に足りない",
+			html: `<div class="panel_area">
+				<div class="w80 ta-r"><p class="col-stand">東京</p></div>
+				<p class="mb-ss fz-m"><span class="name">プレイヤー1</span></p>
+			</div>`,
+		},
+		{
+			name: "スコア値が欠落",
+			html: `<div class="panel_area">
+				<div class="w80 ta-r"><p class="col-stand">東京</p></div>
+				<div class="w80 ta-r"><p class="col-stand">大阪</p></div>
+				<div class="w80 ta-r"><p class="col-stand">福岡</p></div>
+				<div class="w80 ta-r"><p class="col-stand">札幌</p></div>
+				<p class="mb-ss fz-m"><span class="name">P1</span></p>
+				<p class="mb-ss fz-m"><span class="name">P2</span></p>
+				<p class="mb-ss fz-m"><span class="name">P3</span></p>
+				<p class="mb-ss fz-m"><span class="name">P4</span></p>
+			</div>`,
+		},
+	}
+
+	wins := []bool{true, true, false, false}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := goquery.NewDocumentFromReader(strings.NewReader(tt.html))
+			if err != nil {
+				t.Fatalf("HTML解析失敗: %v", err)
+			}
+			got := parseDetailPage(doc.Selection, "2026/08/29", "13:00", wins, "店舗", "mid")
+			if got != nil {
+				t.Errorf("got %d scores, want nil (スキップされるべき)", len(got))
+			}
+		})
+	}
+}
+
+// winsが4人分未満でもpanicしないことを確認する
+func TestParseDetailPage_ShortWins(t *testing.T) {
+	html := `<div class="panel_area"></div>`
+	doc, _ := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if got := parseDetailPage(doc.Selection, "2026/08/29", "13:00", []bool{true}, "店舗", "mid"); got != nil {
+		t.Errorf("got %d scores, want nil", len(got))
+	}
+}
+
+// TestFetchDetailPagesStreaming_EmptyDetailURL は、詳細リンクを持たない試合行
+// (サイトが href="#" を返すケース) が1件混ざってもジョブ全体が失敗しないことを確認する。
+// 修正前は空URLへのGETが unsupported protocol scheme "" となり、errorCount>0 で
+// 全件が破棄され「データの取得に失敗しました」になっていた。
+func TestFetchDetailPagesStreaming_EmptyDetailURL(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	entryCh := make(chan matchEntry, 1)
+	entryCh <- matchEntry{date: "2026/08/29", hour: "12:00", wins: []bool{true, true, false, false}}
+	close(entryCh)
+
+	scores, err := fetchDetailPagesStreaming(ctx, cancel, nil, entryCh, func(int, int) {}, nil, 0, 0)
+	if err != nil {
+		t.Fatalf("空URLの試合はスキップされエラーにならないはずだが got: %v", err)
+	}
+	if len(scores) != 0 {
+		t.Fatalf("スキップした試合のスコアは0件のはずだが got: %d", len(scores))
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("空URLでContextをキャンセルしてはいけない: %v", ctx.Err())
+	}
+}

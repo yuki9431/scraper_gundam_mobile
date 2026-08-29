@@ -275,6 +275,12 @@ func collectDailyLinks(jar http.CookieJar, since time.Time) ([]dailyLink, error)
 		}
 
 		link := e.Request.AbsoluteURL(e.ChildAttr("a", "href"))
+		// href="#" 等でリンクが解決できない行はサイト側が返すことがある。
+		// 空URLのまま進むと取得段で失敗し全体を巻き添えにするため、ここで捨てる
+		if link == "" {
+			log.Printf("[WARN] collectDailyLinks: リンクが無い日別行をスキップ date=%s", date)
+			return
+		}
 		shopName := strings.TrimSpace(e.ChildText("span.ds-ib.tl-l.col-stand.fz-ss"))
 		links = append(links, dailyLink{date: date, url: link, shopName: shopName})
 	})
@@ -402,6 +408,11 @@ func collectMatchEntries(jar http.CookieJar, dl dailyLink, since time.Time) ([]m
 		}
 
 		link := e.Request.AbsoluteURL(e.ChildAttr("a", "href"))
+		// 詳細ページを持たない試合行(href="#")が混ざる。取得できないだけで異常ではない
+		if link == "" {
+			log.Printf("[WARN] collectMatchEntries: 詳細リンクが無い試合をスキップ date=%s hour=%s", dl.date, hour)
+			return
+		}
 		entries = append(entries, matchEntry{
 			date:      dl.date,
 			hour:      hour,
@@ -563,6 +574,13 @@ collectLoop:
 // fetchSingleDetail は単一の試合詳細ページをnet/http+goqueryで取得しスコアを返す
 // HTTPエラーが発生した場合はエラーを返す（403の場合はErrAccessDenied）
 func fetchSingleDetail(ctx context.Context, jar http.CookieJar, e matchEntry) (model.DatedScores, error) {
+	// 空URLを取りに行くと unsupported protocol scheme "" となり、1件の欠落で
+	// ジョブ全体が失敗する。取得不能なだけなので静かに飛ばす
+	if e.detailURL == "" {
+		log.Printf("[WARN] fetchSingleDetail: 詳細URLが空のためスキップ date=%s hour=%s", e.date, e.hour)
+		return nil, nil
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, e.detailURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("リクエスト作成失敗: url=%s: %w", e.detailURL, err)
@@ -606,7 +624,10 @@ func fetchSingleDetail(ctx context.Context, jar http.CookieJar, e matchEntry) (m
 
 	var scores model.DatedScores
 	doc.Find("div.panel_area").Each(func(_ int, s *goquery.Selection) {
-		scores = parseDetailPage(s, e.date, e.hour, e.wins, e.shopName, matchID)
+		// 解析できないpanel_areaで、既に取れた有効なスコアを潰さない
+		if parsed := parseDetailPage(s, e.date, e.hour, e.wins, e.shopName, matchID); parsed != nil {
+			scores = parsed
+		}
 	})
 	return scores, nil
 }
@@ -645,6 +666,15 @@ func parseDetailPage(s *goquery.Selection, date, hour string, wins []bool, shopN
 	datetime, _ := time.Parse(layout, t)
 
 	playerCount := 4
+
+	// サイトのHTML構造が変わると必須項目が欠けるが、goroutine内でのindex out of range は
+	// プロセスごと落とすため、ここで打ち切ってスキップする
+	if len(cities) < playerCount || len(names) < playerCount || len(wins) < playerCount ||
+		len(leftValue) < playerCount*3 || len(rightValue) < playerCount*3 {
+		log.Printf("[WARN] parseDetailPage: 必須項目が不足しているためスキップ matchID=%s cities=%d names=%d wins=%d left=%d right=%d",
+			matchID, len(cities), len(names), len(wins), len(leftValue), len(rightValue))
+		return nil
+	}
 
 	for i := 0; i < playerCount; i++ {
 		offL := i * 3
