@@ -646,6 +646,15 @@ func parseDetailPage(s *goquery.Selection, date, hour string, wins []bool, shopN
 
 	playerCount := 4
 
+	// サイトのHTML構造が変わると必須項目が欠けるが、goroutine内でのindex out of range は
+	// プロセスごと落とすため、ここで打ち切ってスキップする
+	if len(cities) < playerCount || len(names) < playerCount || len(wins) < playerCount ||
+		len(leftValue) < playerCount*3 || len(rightValue) < playerCount*3 {
+		log.Printf("[WARN] parseDetailPage: 必須項目が不足しているためスキップ matchID=%s cities=%d names=%d wins=%d left=%d right=%d",
+			matchID, len(cities), len(names), len(wins), len(leftValue), len(rightValue))
+		return nil
+	}
+
 	for i := 0; i < playerCount; i++ {
 		offL := i * 3
 		offR := i * 3

@@ -92,7 +92,46 @@ type loginResponse struct {
 			} `json:"terms"`
 		} `json:"view"`
 	} `json:"data"`
-	RedirectURL string `json:"redirect"`
+	// サイト側はリダイレクト先を redirect / redirect_no-cache のどちらかで返す。
+	// 片方しか見ないとログイン成功を認証失敗と誤判定するため両方受ける。
+	RedirectURL        string `json:"redirect"`
+	RedirectURLNoCache string `json:"redirect_no-cache"`
+	InputError         struct {
+		ErrorMsg struct {
+			Other string `json:"other"`
+		} `json:"error_msg"`
+	} `json:"input_error"`
+}
+
+// redirect はサイトが返したリダイレクト先を返す。空ならログイン未完了。
+func (l loginResponse) redirect() string {
+	if l.RedirectURL != "" {
+		return l.RedirectURL
+	}
+	return l.RedirectURLNoCache
+}
+
+// sanitizeSiteMessage はサイトが返したエラーメッセージをログ/画面表示用に整える。
+// <br> 等のHTMLをそのまま流さず、長すぎる本文は切り詰める。
+func sanitizeSiteMessage(msg string) string {
+	msg = strings.ReplaceAll(msg, "<br>", " ")
+	for {
+		start := strings.Index(msg, "<")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(msg[start:], ">")
+		if end < 0 {
+			msg = msg[:start]
+			break
+		}
+		msg = msg[:start] + msg[start+end+1:]
+	}
+	msg = strings.Join(strings.Fields(msg), " ")
+	if len([]rune(msg)) > 200 {
+		msg = string([]rune(msg)[:200]) + "..."
+	}
+	return msg
 }
 
 // NewClient は新しいクライアントを作成する
@@ -139,15 +178,20 @@ func (c *Client) Login() error {
 		return fmt.Errorf("ログインレスポンスの解析に失敗: %w", decErr)
 	}
 
-	if l.RedirectURL == "" {
+	redirect := l.redirect()
+	if redirect == "" {
+		// サイトが理由を返している場合はそのまま添える（原因切り分けのため）
+		if msg := l.InputError.ErrorMsg.Other; msg != "" {
+			return fmt.Errorf("%w: %s", ErrLoginFailed, sanitizeSiteMessage(msg))
+		}
 		return ErrLoginFailed
 	}
 
-	if strings.Contains(l.RedirectURL, "passkey") {
+	if strings.Contains(redirect, "passkey") {
 		return c.skipPasskey(l)
 	}
 
-	authPage, err := c.HTTPClient.Get(l.RedirectURL)
+	authPage, err := c.HTTPClient.Get(redirect)
 	if err != nil {
 		return fmt.Errorf("認証リダイレクトに失敗: %w", err)
 	}
@@ -157,7 +201,7 @@ func (c *Client) Login() error {
 }
 
 func (c *Client) skipPasskey(l loginResponse) error {
-	parsedURL, err := url.Parse(l.RedirectURL)
+	parsedURL, err := url.Parse(l.redirect())
 	if err != nil {
 		return err
 	}
