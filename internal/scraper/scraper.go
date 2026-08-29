@@ -606,7 +606,10 @@ func fetchSingleDetail(ctx context.Context, jar http.CookieJar, e matchEntry) (m
 
 	var scores model.DatedScores
 	doc.Find("div.panel_area").Each(func(_ int, s *goquery.Selection) {
-		scores = parseDetailPage(s, e.date, e.hour, e.wins, e.shopName, matchID)
+		// 解析できないpanel_areaで、既に取れた有効なスコアを潰さない
+		if parsed := parseDetailPage(s, e.date, e.hour, e.wins, e.shopName, matchID); parsed != nil {
+			scores = parsed
+		}
 	})
 	return scores, nil
 }

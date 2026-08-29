@@ -2,6 +2,7 @@ package scraper
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -81,11 +82,7 @@ func TestSanitizeSiteMessage(t *testing.T) {
 }
 
 func TestSanitizeSiteMessageTruncates(t *testing.T) {
-	long := ""
-	for i := 0; i < 300; i++ {
-		long += "あ"
-	}
-	got := []rune(sanitizeSiteMessage(long))
+	got := []rune(sanitizeSiteMessage(strings.Repeat("あ", 300)))
 	if len(got) != 203 {
 		t.Errorf("切り詰め後の長さ = %d, want 203", len(got))
 	}
