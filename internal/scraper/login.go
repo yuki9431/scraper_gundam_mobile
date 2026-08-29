@@ -300,7 +300,9 @@ func (c *Client) getAPI(endpoint string, v url.Values) (loginResponse, error) {
 	if err != nil {
 		return loginResponse{}, fmt.Errorf("認証APIの呼び出しに失敗: %w", err)
 	}
-	return c.readAPIResponse(resp)
+	defer func() { _ = resp.Body.Close() }()
+
+	return c.parseAPIResponse(resp.Body)
 }
 
 func (c *Client) postAPI(endpoint string, v url.Values) (loginResponse, error) {
@@ -308,14 +310,14 @@ func (c *Client) postAPI(endpoint string, v url.Values) (loginResponse, error) {
 	if err != nil {
 		return loginResponse{}, fmt.Errorf("認証APIの呼び出しに失敗: %w", err)
 	}
-	return c.readAPIResponse(resp)
-}
-
-// readAPIResponse は応答を読み、本文Cookieをjarへ反映してから結果を返す。
-func (c *Client) readAPIResponse(resp *http.Response) (loginResponse, error) {
 	defer func() { _ = resp.Body.Close() }()
 
-	body, err := io.ReadAll(resp.Body)
+	return c.parseAPIResponse(resp.Body)
+}
+
+// parseAPIResponse は応答を読み、本文Cookieをjarへ反映してから結果を返す。
+func (c *Client) parseAPIResponse(r io.Reader) (loginResponse, error) {
+	body, err := io.ReadAll(r)
 	if err != nil {
 		return loginResponse{}, fmt.Errorf("認証APIの応答読み取りに失敗: %w", err)
 	}
