@@ -272,3 +272,27 @@ func TestParseDetailPage_ShortWins(t *testing.T) {
 		t.Errorf("got %d scores, want nil", len(got))
 	}
 }
+
+// TestFetchDetailPagesStreaming_EmptyDetailURL は、詳細リンクを持たない試合行
+// (サイトが href="#" を返すケース) が1件混ざってもジョブ全体が失敗しないことを確認する。
+// 修正前は空URLへのGETが unsupported protocol scheme "" となり、errorCount>0 で
+// 全件が破棄され「データの取得に失敗しました」になっていた。
+func TestFetchDetailPagesStreaming_EmptyDetailURL(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	entryCh := make(chan matchEntry, 1)
+	entryCh <- matchEntry{date: "2026/08/29", hour: "12:00", wins: []bool{true, true, false, false}}
+	close(entryCh)
+
+	scores, err := fetchDetailPagesStreaming(ctx, cancel, nil, entryCh, func(int, int) {}, nil, 0, 0)
+	if err != nil {
+		t.Fatalf("空URLの試合はスキップされエラーにならないはずだが got: %v", err)
+	}
+	if len(scores) != 0 {
+		t.Fatalf("スキップした試合のスコアは0件のはずだが got: %d", len(scores))
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("空URLでContextをキャンセルしてはいけない: %v", ctx.Err())
+	}
+}
